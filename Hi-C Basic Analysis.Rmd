@@ -1,0 +1,337 @@
+---
+title: "Hi-C Basic Analysis"
+author: "Ittai Eres"
+date: "1/12/2017"
+output: html_document
+---
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r "setup", include=FALSE}
+knitr::opts_knit$set(root.dir="~/Desktop/Hi-C/Bedtools_Analyze")
+setwd("~/Desktop/Hi-C/Bedtools_Analyze")
+
+##For plotly stuff
+#Sys.setenv("plotly_username"="ittai")
+#Sys.setenv("plotly_api_key"="FeF6FPAJDkpIb9pP4zq5")
+
+## Useful
+genome <- c("chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20", "chr21", "chr22", "chrX", "chrY")
+
+## Read in all DAT DATA!
+coverage.full <- read.delim("coverage_5kb_1kb.bed", header=FALSE, stringsAsFactors = FALSE)
+colnames(coverage.full) <- c("chr", "pos1", "pos2", "count")
+```
+
+```{r Bin Sum Optimization Function--preferred}
+#Simple function that finds the sets of bins in each block of reads that will yield the greatest sum of reads, regardless of read inclusion.
+optimize.bin.sums <- function(coverage_df){
+  
+   #define some necessary variables based on the coverage df; initiliaze some variables
+  bin.size <- coverage_df$pos2[1]-coverage_df$pos1[1]
+  window.slide <- coverage_df$pos1[2]-coverage_df$pos1[1]
+  index.slide <- (bin.size/window.slide) #obtain the value for how many indices to slide forward for the sliding window!
+  loc.index <- 1 #initialize an index for moving through the coverage_df
+  coverage_df$bin <- 0 #intiailize another column in the coverage_df storing whether a given range ends up being a bin (1 for yes)
+  
+  while(loc.index<=nrow(coverage_df)){#iterate through all the positions in the coverage df
+    
+    if(coverage_df$count[loc.index]==0){ #move on to the next index if the given row has no reads in that bin--it's irrelevant.
+      loc.index <- loc.index+1 #increment the index
+      next}# move on to iterate this while loop again
+    
+    #If we see a switch from 0 to >0, the window has slid to include a new read in it. First, define the full range of the reads we can find here:
+    end.index <- loc.index + match(0, coverage_df$count[loc.index:nrow(coverage_df)])-2 #pulls out just b/f the first instance of 0 in the count column--i.e. end.index is the last index at which a non-zero value is found
+    tmp.indices <- seq(loc.index, end.index, index.slide) #grab first set of possible bins from this read region
+    tmp.max <- sum(coverage_df$count[tmp.indices]) #store the sum of the read counts from this set as the temporary maximum
+    tmp.max.indices <- tmp.indices #initialize the tmp.max.indices variable with these first indices, for proper bin assignation after the loop
+    
+    #Include something here to deal with the case when the initial tmp.indices is only a single element? I.e. where a region doesn't have options?
+    #Check on the other regions where this is happening--the issue might not be that, but, rather, that there are ties!
+    
+    while(head(tmp.indices, 1)<=(loc.index+index.slide-1)){#keep going until we've considered all the possible bin combinations in this block of reads--check by stopping if the first value in tmp.indices is greater than index.slide above the loc.index
+      tmp.indices <- tmp.indices + 1 #increment to look at the next set of bins
+      tmp.indices <- tmp.indices[which(tmp.indices<=end.index)] #get rid of indices in tmp.indices that go past the end.index (i.e. move into other read blocks that are separated by a 0!)
+      
+      if(!length(tmp.indices)){break} #If tmp.indices turns into an empty vector (cases where there are not multiple options for bin combos), break this loop and move on (not gonna get higher tmp.max).
+      
+      if(sum(coverage_df$count[tmp.indices])>tmp.max){#If we have found a new way to maximize total read count in a bin set,
+        tmp.max.indices <- tmp.indices #store these given indices in the tmp.max.indices variable, for bin assignation after the loop
+        tmp.max <- sum(coverage_df$count[tmp.indices]) #make this the new tmp.max
+      }
+    }
+    coverage_df$bin[tmp.max.indices] <- 1 #assign a status of being a chosen bin to the indices that gave us the max sum!
+    loc.index <- tail(tmp.max.indices, 1)+index.slide #Move the loc index to the next possible bin after the chosen set (tmp.max.indices)
+  }
+  return(coverage_df[which(coverage_df$bin==1),-4:-5]) #return a df of all the bins and their counts. minus the "bin" column
+}
+```
+
+```{r Contact Tabulations}
+library(dplyr)
+library(tidyr)
+library("Hmisc")
+
+#With all different types of bin creation methods in hand, I can now go about actually tabulating contact counts for individual loci!
+basic_tabulation <- function(pos_df, distance1, distance2, bins.df){
+  colnames(pos_df) <- c("pos1", "pos2") #ensure the column names of the pos_df work with the next lines
+  
+  pos1_new <- ifelse(pos_df$pos1<pos_df$pos2, pos_df$pos1, pos_df$pos2) #reorders columns so pos1 < pos2. important for not repeating bin pairs
+  pos2_new <- ifelse(pos_df$pos1<pos_df$pos2, pos_df$pos2, pos_df$pos1) #If true, returns second arg; if false, returns third.
+  pos_df$pos1 <- pos1_new #assignation of the new columns
+  pos_df$pos2 <- pos2_new #assignation of the new columns
+  
+  pos_df$diff <- abs(pos_df$pos1-pos_df$pos2) #make a third column--the difference between the first two
+  pos_df <- pos_df[pos_df$diff<(distance2)&pos_df$diff>=(distance1),1:2] #pull out pairs in the given distance range
+  
+  if(nrow(pos_df)>0){#If we've found pairs at the given distance, tabulate contact counts!
+  bins.vec <- unique(sort(c(bins.df$pos1, bins.df$pos2))) #Pulls out the vector of bins for the given chromosome at given bin size.
+  
+  pos_df <- pos_df %>% mutate(pos1_bin = cut2(pos1, bins.vec, onlycuts=TRUE, oneval=FALSE, digits=9)) %>% mutate(pos2_bin = cut2(pos2, bins.vec, onlycuts=TRUE, oneval=FALSE, digits=9)) #make two new columns in the pos_df, with bin assignments for pos1 and pos2
+  pos_df %>% group_by(pos1_bin, pos2_bin) %>% summarise(count=n()) #tabulate the bin contacts that are repeated to find total bin-bin contacts
+  }
+  else(return(0))#print("No contacts at that distance on this chromosome!"))
+}
+```
+
+```{r Variable assignment for data creation}
+#First, gotta get the coverage and optimize the bins for all chromosomes.
+chr1.full <- coverage.full[which(coverage.full$chr=="chr1"),]
+chr2.full <- coverage.full[which(coverage.full$chr=="chr2"),]
+chr3.full <- coverage.full[which(coverage.full$chr=="chr3"),]
+chr4.full <- coverage.full[which(coverage.full$chr=="chr4"),]
+chr5.full <- coverage.full[which(coverage.full$chr=="chr5"),]
+chr6.full <- coverage.full[which(coverage.full$chr=="chr6"),]
+chr7.full <- coverage.full[which(coverage.full$chr=="chr7"),]
+chr8.full <- coverage.full[which(coverage.full$chr=="chr8"),]
+chr9.full <- coverage.full[which(coverage.full$chr=="chr9"),]
+chr10.full <- coverage.full[which(coverage.full$chr=="chr10"),]
+chr11.full <- coverage.full[which(coverage.full$chr=="chr11"),]
+chr12.full <- coverage.full[which(coverage.full$chr=="chr12"),]
+chr13.full <- coverage.full[which(coverage.full$chr=="chr13"),]
+chr14.full <- coverage.full[which(coverage.full$chr=="chr14"),]
+chr15.full <- coverage.full[which(coverage.full$chr=="chr15"),]
+chr16.full <- coverage.full[which(coverage.full$chr=="chr16"),]
+chr17.full <- coverage.full[which(coverage.full$chr=="chr17"),]
+chr18.full <- coverage.full[which(coverage.full$chr=="chr18"),]
+chr19.full <- coverage.full[which(coverage.full$chr=="chr19"),]
+chr20.full <- coverage.full[which(coverage.full$chr=="chr20"),]
+chr21.full <- coverage.full[which(coverage.full$chr=="chr21"),]
+chr22.full <- coverage.full[which(coverage.full$chr=="chr22"),]
+chrX.full <- coverage.full[which(coverage.full$chr=="chrX"),]
+chrY.full <- coverage.full[which(coverage.full$chr=="chrY"),]
+
+bins.1 <- optimize.bin.sums(chr1.full)
+bins.2 <- optimize.bin.sums(chr2.full)
+bins.3 <- optimize.bin.sums(chr3.full)
+bins.4 <- optimize.bin.sums(chr4.full)
+bins.5 <- optimize.bin.sums(chr5.full)
+bins.6 <- optimize.bin.sums(chr6.full)
+bins.7 <- optimize.bin.sums(chr7.full)
+bins.8 <- optimize.bin.sums(chr8.full)
+bins.9 <- optimize.bin.sums(chr9.full)
+bins.10 <- optimize.bin.sums(chr10.full)
+bins.11 <- optimize.bin.sums(chr11.full)
+bins.12 <- optimize.bin.sums(chr12.full)
+bins.13 <- optimize.bin.sums(chr13.full)
+bins.14 <- optimize.bin.sums(chr14.full)
+bins.15 <- optimize.bin.sums(chr15.full)
+bins.16 <- optimize.bin.sums(chr16.full)
+bins.17 <- optimize.bin.sums(chr17.full)
+bins.18 <- optimize.bin.sums(chr18.full)
+bins.19 <- optimize.bin.sums(chr19.full)
+bins.20 <- optimize.bin.sums(chr20.full)
+bins.21 <- optimize.bin.sums(chr21.full)
+bins.22 <- optimize.bin.sums(chr22.full)
+bins.X <- optimize.bin.sums(chrX.full)
+bins.Y <- optimize.bin.sums(chrY.full)
+
+
+#fread("just1", heder=FALSE, stringsAsFactors=FALSE) is faster for big files!
+
+setwd("/Users/ittaieres/Desktop/Hi-C/Hi-C Basic Analyze")
+pos_df.1 <- read.delim("just1", header=FALSE, stringsAsFactors = FALSE)
+pos_df.2 <- read.delim("just2", header=FALSE, stringsAsFactors = FALSE)
+pos_df.3 <- read.delim("just3", header=FALSE, stringsAsFactors = FALSE)
+pos_df.4 <- read.delim("just4", header=FALSE, stringsAsFactors = FALSE)
+pos_df.5 <- read.delim("just5", header=FALSE, stringsAsFactors = FALSE)
+pos_df.6 <- read.delim("just6", header=FALSE, stringsAsFactors = FALSE)
+pos_df.7 <- read.delim("just7", header=FALSE, stringsAsFactors = FALSE)
+pos_df.8 <- read.delim("just8", header=FALSE, stringsAsFactors = FALSE)
+pos_df.9 <- read.delim("just9", header=FALSE, stringsAsFactors = FALSE)
+pos_df.10 <- read.delim("just10", header=FALSE, stringsAsFactors = FALSE)
+pos_df.11 <- read.delim("just11", header=FALSE, stringsAsFactors = FALSE)
+pos_df.12 <- read.delim("just12", header=FALSE, stringsAsFactors = FALSE)
+pos_df.13 <- read.delim("just13", header=FALSE, stringsAsFactors = FALSE)
+pos_df.14 <- read.delim("just14", header=FALSE, stringsAsFactors = FALSE)
+pos_df.15 <- read.delim("just15", header=FALSE, stringsAsFactors = FALSE)
+pos_df.16 <- read.delim("just16", header=FALSE, stringsAsFactors = FALSE)
+pos_df.17 <- read.delim("just17", header=FALSE, stringsAsFactors = FALSE)
+pos_df.18 <- read.delim("just18", header=FALSE, stringsAsFactors = FALSE)
+pos_df.19 <- read.delim("just19", header=FALSE, stringsAsFactors = FALSE)
+pos_df.20 <- read.delim("just20", header=FALSE, stringsAsFactors = FALSE)
+pos_df.21 <- read.delim("just21", header=FALSE, stringsAsFactors = FALSE)
+pos_df.22 <- read.delim("just22", header=FALSE, stringsAsFactors = FALSE)
+pos_df.X <- read.delim("justX", header=FALSE, stringsAsFactors = FALSE)
+pos_df.Y <- read.delim("justY", header=FALSE, stringsAsFactors = FALSE)
+```
+
+
+```{r Plotting and examination of data Distribution of contact frequency for different distances}
+#Now, actually use the basic tabulation function to populate matrices for each of the chromosomes with differing distances.
+setwd("/Users/ittaieres/Desktop/Hi-C/Hi-C Basic Analyze")
+
+indiv.chrom.tabulator <- function(pos_df, bins, start, end, by){
+  distances <- seq(start, end, by) #Get the set of distances being looked at
+  tabulation.list <- vector("list", length(distances))
+  for(distance in 1:length(distances)){
+    if(is.null(nrow(basic_tabulation(pos_df, distances[distance], distances[distance]+by, bins)))){next}
+    tabulation.list[[distance]] <- basic_tabulation(pos_df, distances[distance], distances[distance]+by, bins)$count
+    }
+  names(tabulation.list) <- distances
+  return(tabulation.list)
+}
+
+full.chrom.tabulator <- function(pos_df, bins, start, end, by, chr){
+  distances <- seq(start, end, by) #Get the set of distances being looked at
+  tabulation.list <- vector("list", length(distances))
+  for(distance in 1:length(distances)){
+    if(is.null(nrow(basic_tabulation(pos_df, distances[distance], distances[distance]+by, bins)))){next}
+    tmp.counts <- basic_tabulation(pos_df, distances[distance], distances[distance]+by, bins)$count
+    tmp.mean <- mean(tmp.counts)
+    tabulation.list[[distance]] <- data.frame(count=tmp.counts, bin=distances[distance], chr=chr, mean=tmp.mean)
+  }
+  tabulation.df <- do.call(rbind, tabulation.list)
+  return(tabulation.df)
+}
+
+tab_df.1 <- full.chrom.tabulator(pos_df.1, bins.1, 5000, 100000, 5000, "chr1")
+tab_df.2 <- full.chrom.tabulator(pos_df.2, bins.2, 5000, 100000, 5000, "chr2")
+tab_df.3 <- full.chrom.tabulator(pos_df.3, bins.3, 5000, 100000, 5000, "chr3")
+tab_df.4 <- full.chrom.tabulator(pos_df.4, bins.4, 5000, 100000, 5000, "chr4")
+tab_df.5 <- full.chrom.tabulator(pos_df.5, bins.5, 5000, 100000, 5000, "chr5")
+tab_df.6 <- full.chrom.tabulator(pos_df.6, bins.6, 5000, 100000, 5000, "chr6")
+tab_df.7 <- full.chrom.tabulator(pos_df.7, bins.7, 5000, 100000, 5000, "chr7")
+tab_df.8 <- full.chrom.tabulator(pos_df.8, bins.8, 5000, 100000, 5000, "chr8")
+tab_df.9 <- full.chrom.tabulator(pos_df.9, bins.9, 5000, 100000, 5000, "chr9")
+tab_df.10 <- full.chrom.tabulator(pos_df.10, bins.10, 5000, 100000, 5000, "chr10")
+tab_df.11 <- full.chrom.tabulator(pos_df.11, bins.11, 5000, 100000, 5000, "chr11")
+tab_df.12 <- full.chrom.tabulator(pos_df.12, bins.12, 5000, 100000, 5000, "chr12")
+tab_df.13 <- full.chrom.tabulator(pos_df.13, bins.13, 5000, 100000, 5000, "chr13")
+tab_df.14 <- full.chrom.tabulator(pos_df.14, bins.14, 5000, 100000, 5000, "chr14")
+tab_df.15 <- full.chrom.tabulator(pos_df.15, bins.15, 5000, 100000, 5000, "chr15")
+tab_df.16 <- full.chrom.tabulator(pos_df.16, bins.16, 5000, 100000, 5000, "chr16")
+tab_df.17 <- full.chrom.tabulator(pos_df.17, bins.17, 5000, 100000, 5000, "chr17")
+tab_df.18 <- full.chrom.tabulator(pos_df.18, bins.18, 5000, 100000, 5000, "chr18")
+tab_df.19 <- full.chrom.tabulator(pos_df.19, bins.19, 5000, 100000, 5000, "chr19")
+tab_df.20 <- full.chrom.tabulator(pos_df.20, bins.20, 5000, 100000, 5000, "chr20")
+tab_df.21 <- full.chrom.tabulator(pos_df.21, bins.21, 5000, 100000, 5000, "chr21")
+tab_df.22 <- full.chrom.tabulator(pos_df.22, bins.22, 5000, 100000, 5000, "chr22")
+tab_df.X <- full.chrom.tabulator(pos_df.X, bins.X, 5000, 100000, 5000, "chrX")
+tab_df.Y <- full.chrom.tabulator(pos_df.Y, bins.Y, 5000, 100000, 5000, "chrY")
+
+library(plyr)
+library(dplyr)
+tab_df.full <- rbind.fill(tab_df.1, tab_df.2, tab_df.3, tab_df.4, tab_df.5, tab_df.6, tab_df.7, tab_df.8, tab_df.9, tab_df.10, tab_df.11, tab_df.12, tab_df.13, tab_df.14, tab_df.15, tab_df.16, tab_df.17, tab_df.18, tab_df.19, tab_df.20, tab_df.21, tab_df.22, tab_df.X, tab_df.Y) #Merge all these data frames together into one big one for plotting.
+
+#Produce boxplots of the distribution of means across the chromosomes at a given distance bin.
+p <- plot_ly(tab_df.full) %>%
+  add_trace(y=mean, type='box')
+
+g <- ggplot(tab_df.full, aes(x=factor(bin), y=mean)) +
+  geom_boxplot() +
+  geom_jitter(aes(x=factor(bin), y=mean, text=chr))
+h <- ggplotly(g)
+
+
+i=
+tab_df.full%>%filter(bin=="5000")%>%filter(chr=="chr10" | chr =="chr20")%>%
+ggplot(., aes(x=count,fill=chr)) +
+  geom_density()
+
++
+  geom_jitter(aes(x=factor(bin), y=mean, text=chr))
+h <- ggplotly(g)
+
+
+
+this <- tab_df.full %>% filter(count, bin==5000)
+hist(this$count)
+
+
+tab_df.full%>%filter(bin=="5000")%>%filter(chr=="chr10" | chr =="chr20")%>%dim
+
+write.table(tab_df.full, file='IEE_data', sep="\t", eol="\n", col.names=T, row.names=F, quote=F)
+
+#Create an empty data frame for putting the means information into, for boxplotting afterwards.
+means.df <- data.frame(matrix(ncol=40, nrow=24))
+colnames(means.df) <- names(list.1)
+rownames(means.df) <- lists
+
+lists <- c("list.1", "list.2", "list.3", "list.4", "list.5", "list.6", "list.7", "list.8", "list.9", "list.10", "list.11", "list.12", "list.13", "list.14", "list.15", "list.16", "list.17", "list.18", "list.19", "list.20", "list.21", "list.22", "list.X", "list.Y")
+
+for(chrom in lists){ #Iterate through all the lists and obtain the means for each of the different distance bins desired.
+  means.df[chrom,] <- c(mean(get(chrom)[[1]]), mean(get(chrom)[[2]]), mean(get(chrom)[[3]]), mean(get(chrom)[[4]]), mean(get(chrom)[[5]]), mean(get(chrom)[[6]]), mean(get(chrom)[[7]]), mean(get(chrom)[[8]]), mean(get(chrom)[[9]]), mean(get(chrom)[[10]]), mean(get(chrom)[[11]]), mean(get(chrom)[[12]]), mean(get(chrom)[[13]]), mean(get(chrom)[[14]]), mean(get(chrom)[[15]]), mean(get(chrom)[[16]]), mean(get(chrom)[[17]]), mean(get(chrom)[[18]]), mean(get(chrom)[[19]]), mean(get(chrom)[[20]]), mean(get(chrom)[[21]]), mean(get(chrom)[[22]]), mean(get(chrom)[[23]]), mean(get(chrom)[[24]]), mean(get(chrom)[[25]]), mean(get(chrom)[[26]]), mean(get(chrom)[[27]]), mean(get(chrom)[[28]]), mean(get(chrom)[[29]]), mean(get(chrom)[[30]]), mean(get(chrom)[[31]]), mean(get(chrom)[[32]]), mean(get(chrom)[[33]]), mean(get(chrom)[[34]]), mean(get(chrom)[[35]]), mean(get(chrom)[[36]]), mean(get(chrom)[[37]]), mean(get(chrom)[[38]]), mean(get(chrom)[[39]]), mean(get(chrom)[[40]]))
+}
+
+rownames(means.df) <- genome
+
+means.gg.df <- data.frame(matrix(ncol=3, nrow=960))
+
+library(reshape2) #Load the reshape2 package for melting the data into the appropriate DF format
+means.gg.df <- melt(means.df) #Melt! Doesn't add the chromosome column though, can do that manually
+means.gg.df$chr <- rep(genome, 40)
+
+suggested.bg <- lists[c(-1, -2, -23, -24)]
+
+
+test <- ggplot(means.gg.df[1:480,], aes(x=variable, y=value)) + geom_boxplot()
+test2 <- ggplotly(test, tooltip=means.gg.df$chr)
+
+test3 <- plot_ly(means.gg.df, x=means.gg.df$variable, y=means.gg.df$value, text=means.gg.df$chr, hoverinfo="text", type=box)
+
+
+for(list in lists){print(get(list)[[1]])}
+
+
+mega.list <- list(list.3, list.4, list.5, list.6, list.7, list.8, list.9, list.10, list.11, list.12, list.13, list.14, list.15, list.16, list.17, list.18, list.19, list.20, list.21, list.22)
+keys <- unique(unlist(lapply(mega.list, names)))
+mega.list <- setNames(do.call(mapply, c(FUN=c, lapply(mega.list, "[", keys))), keys)
+
+library(plyr)
+test <- data.frame(matrix(ncol=2, nrow=sum(lengths(mega.list))))
+colnames(test) <- c("bin", "ct")
+
+#Make a data frame that will work with ggplot2 for plotting this ish out!!! Works, has been validated w/ sums of counts
+for(element in 1:length(mega.list)){
+  if(element==1){
+  test[1:length(mega.list[[element]]),1] <- names(mega.list)[element]
+  test[1:length(mega.list[[element]]),2] <- mega.list[[element]]
+  start <- length(mega.list[[element]])+1
+  }
+  else{
+    end <- start+length(mega.list[[element]])-1
+    print(c(element, start, end))
+    test[(start:end),1] <- names(mega.list)[element]
+    test[(start:end),2] <- as.vector(mega.list[[element]])
+    start <- end+1
+  }
+}
+
+sum(mega.list[[3]])
+```
+
+```{r Plotting}
+library(ggplot2)
+?geom_boxplot()
+
+g <- ggplot(test, aes(bin, ct)) + geom_boxplot()
+
+library(dplyr)
+test %>%
+  filter(.,bin<=50000) %>%
+    ggplot(., aes(bin, ct))+
+      geom_boxplot() #Gets some good stuff but it's still not in order
+```

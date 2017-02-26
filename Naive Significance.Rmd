@@ -1,0 +1,146 @@
+---
+title: "Naive Significance for Hi-C"
+author: "Ittai Eres"
+date: "2/22/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(plyr)
+library(tidyr)
+library(data.table)
+library(reshape2)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+
+## Reads in all the data in one long-form dataframe.
+data<- fread("~/IEE_data", sep="\t",header = T,stringsAsFactors = FALSE)
+
+## Useful for iterating through all chromosomes later.
+genome <- c("chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20", "chr21", "chr22", "chrX", "chrY")
+```
+
+```{r}
+#Function to create boxplots from individual chromosomes' contact counts by reading in from a long-form data frame containing all info. Also returns a data frame specifying the values that represent the threshold for the top 'percents' of each distribution.
+chrom.analyzer <- function(chromosome, df, percents){
+  
+  chr.df <- filter(df, chr==chromosome) #Filter out to get the chromosome of interest
+  ggplot(chr.df, aes(x=bin, y=count)) + geom_boxplot(aes(group=bin)) #For actually visualizing the boxplots
+  
+  bins <- unique(df$bin) #Grab the bins
+  percents <- percents*.01 #Re-scale the percents to work with quantile in the loop below.
+  
+  values.df <- data.frame(matrix(nrow=length(bins), ncol=length(percents))) #Initialize the df to be returned
+  colnames(values.df) <- percents #Initialize the df's colnames for iterating through
+  rownames(values.df) <- bins #Initialize the df's rownames for iterating through
+  
+  for(bin in bins){
+    for(percent in percents){
+      values.df[as.character(bin), as.character(percent)] <- quantile(chr.df$count[chr.df$bin==bin], 1-percent)[[1]]#To pull out the value above which are the top percent % of loci
+    }
+  }
+  return(values.df)
+}
+
+
+
+my.ps <- c(5, 2.5, 1, 0.5, 0.1)
+test <- chrom.analyzer("chr1", data, my.ps)
+
+```
+
+
+```{r Functions used in call of main function: bin sum optimization, contact frequency tabulation, }
+#Simple function that finds the sets of bins in each block of reads that will yield the greatest sum of reads, regardless of read inclusion.
+optimize.bin.sums <- function(coverage_df){
+  
+   #define some necessary variables based on the coverage df; initiliaze some variables
+  bin.size <- coverage_df$pos2[1]-coverage_df$pos1[1]
+  window.slide <- coverage_df$pos1[2]-coverage_df$pos1[1]
+  index.slide <- (bin.size/window.slide) #obtain the value for how many indices to slide forward for the sliding window!
+  loc.index <- 1 #initialize an index for moving through the coverage_df
+  coverage_df$bin <- 0 #intiailize another column in the coverage_df storing whether a given range ends up being a bin (1 for yes)
+  
+  while(loc.index<=nrow(coverage_df)){#iterate through all the positions in the coverage df
+    
+    if(coverage_df$count[loc.index]==0){ #move on to the next index if the given row has no reads in that bin--it's irrelevant.
+      loc.index <- loc.index+1 #increment the index
+      next}# move on to iterate this while loop again
+    
+    #If we see a switch from 0 to >0, the window has slid to include a new read in it. First, define the full range of the reads we can find here:
+    end.index <- loc.index + match(0, coverage_df$count[loc.index:nrow(coverage_df)])-2 #pulls out just b/f the first instance of 0 in the count column--i.e. end.index is the last index at which a non-zero value is found
+    tmp.indices <- seq(loc.index, end.index, index.slide) #grab first set of possible bins from this read region
+    tmp.max <- sum(coverage_df$count[tmp.indices]) #store the sum of the read counts from this set as the temporary maximum
+    tmp.max.indices <- tmp.indices #initialize the tmp.max.indices variable with these first indices, for proper bin assignation after the loop
+    
+    #Include something here to deal with the case when the initial tmp.indices is only a single element? I.e. where a region doesn't have options?
+    #Check on the other regions where this is happening--the issue might not be that, but, rather, that there are ties!
+    
+    while(head(tmp.indices, 1)<=(loc.index+index.slide-1)){#keep going until we've considered all the possible bin combinations in this block of reads--check by stopping if the first value in tmp.indices is greater than index.slide above the loc.index
+      tmp.indices <- tmp.indices + 1 #increment to look at the next set of bins
+      tmp.indices <- tmp.indices[which(tmp.indices<=end.index)] #get rid of indices in tmp.indices that go past the end.index (i.e. move into other read blocks that are separated by a 0!)
+      
+      if(!length(tmp.indices)){break} #If tmp.indices turns into an empty vector (cases where there are not multiple options for bin combos), break this loop and move on (not gonna get higher tmp.max).
+      
+      if(sum(coverage_df$count[tmp.indices])>tmp.max){#If we have found a new way to maximize total read count in a bin set,
+        tmp.max.indices <- tmp.indices #store these given indices in the tmp.max.indices variable, for bin assignation after the loop
+        tmp.max <- sum(coverage_df$count[tmp.indices]) #make this the new tmp.max
+      }
+    }
+    coverage_df$bin[tmp.max.indices] <- 1 #assign a status of being a chosen bin to the indices that gave us the max sum!
+    loc.index <- tail(tmp.max.indices, 1)+index.slide #Move the loc index to the next possible bin after the chosen set (tmp.max.indices)
+  }
+  return(coverage_df[which(coverage_df$bin==1),-4:-5]) #return a df of all the bins and their counts. minus the "bin" column
+}
+
+#A function that tabulates the frequency of contact between different bins on a position dataframe.
+basic_tabulation <- function(pos_df, distance1, distance2, bins.df){
+  colnames(pos_df) <- c("pos1", "pos2") #ensure the column names of the pos_df work with the next lines
+  
+  pos1_new <- ifelse(pos_df$pos1<pos_df$pos2, pos_df$pos1, pos_df$pos2) #reorders columns so pos1 < pos2. important for not repeating bin pairs
+  pos2_new <- ifelse(pos_df$pos1<pos_df$pos2, pos_df$pos2, pos_df$pos1) #If true, returns second arg; if false, returns third.
+  pos_df$pos1 <- pos1_new #assignation of the new columns
+  pos_df$pos2 <- pos2_new #assignation of the new columns
+  
+  pos_df$diff <- abs(pos_df$pos1-pos_df$pos2) #make a third column--the difference between the first two
+  pos_df <- pos_df[pos_df$diff<(distance2)&pos_df$diff>=(distance1),1:2] #pull out pairs in the given distance range
+  
+  if(nrow(pos_df)>0){#If we've found pairs at the given distance, tabulate contact counts!
+  bins.vec <- unique(sort(c(bins.df$pos1, bins.df$pos2))) #Pulls out the vector of bins for the given chromosome at given bin size.
+  
+  pos_df <- pos_df %>% mutate(pos1_bin = cut2(pos1, bins.vec, onlycuts=TRUE, oneval=FALSE, digits=9)) %>% mutate(pos2_bin = cut2(pos2, bins.vec, onlycuts=TRUE, oneval=FALSE, digits=9)) #make two new columns in the pos_df, with bin assignments for pos1 and pos2
+  pos_df %>% group_by(pos1_bin, pos2_bin) %>% summarise(count=n()) #tabulate the bin contacts that are repeated to find total bin-bin contacts
+  }
+  else(return(0))#print("No contacts at that distance on this chromosome!"))
+}
+
+#Creates a list of vectors of contact counts for an individual chromosome at a variety of different distance bins (specified by user). 
+indiv.chrom.tabulator <- function(pos_df, bins, start, end, by){
+  distances <- seq(start, end, by) #Get the set of distances being looked at
+  tabulation.list <- vector("list", length(distances))
+  for(distance in 1:length(distances)){
+    if(is.null(nrow(basic_tabulation(pos_df, distances[distance], distances[distance]+by, bins)))){next}
+    tabulation.list[[distance]] <- basic_tabulation(pos_df, distances[distance], distances[distance]+by, bins)$count
+    }
+  names(tabulation.list) <- distances
+  return(tabulation.list)
+}
+
+#Creates a massive long-form dataframe containing information on count, mean, and chromosome for each distance bin--called on individual chromosomes at a time.
+full.chrom.tabulator <- function(pos_df, bins, start, end, by, chr){
+  distances <- seq(start, end, by) #Get the set of distances being looked at
+  tabulation.list <- vector("list", length(distances))
+  for(distance in 1:length(distances)){
+    if(is.null(nrow(basic_tabulation(pos_df, distances[distance], distances[distance]+by, bins)))){next}
+    tmp.counts <- basic_tabulation(pos_df, distances[distance], distances[distance]+by, bins)$count
+    tmp.mean <- mean(tmp.counts)
+    tabulation.list[[distance]] <- data.frame(count=tmp.counts, bin=distances[distance], chr=chr, mean=tmp.mean)
+  }
+  tabulation.df <- do.call(rbind, tabulation.list)
+  return(tabulation.df)
+}
+```
+
