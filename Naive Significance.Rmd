@@ -15,41 +15,102 @@ library(reshape2)
 library(ggplot2)
 library(plotly)
 library(dplyr)
+library(Hmisc)
 
-## Reads in all the data in one long-form dataframe.
-data<- fread("~/IEE_data", sep="\t",header = T,stringsAsFactors = FALSE)
+## Read in the full coverage data for 10 kb.
+setwd("/Users/ittaieres/Desktop/Hi-C/Bedtools_Analyze")
+full_coverage <- fread("coverage_10kb_5kb.bed", sep="\t", header=F, stringsAsFactors = FALSE)
+colnames(full_coverage) <- c("chr", "start", "end", "count")
 
 ## Useful for iterating through all chromosomes later.
 genome <- c("chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20", "chr21", "chr22", "chrX", "chrY")
 ```
 
-```{r}
+```{r Sanity checking to make sure everything makes sense!}
+coverage.22 <- full_coverage[full_coverage$chr=="chr22",]
+
+
+```
+
+
+
+```{r Significance threshold calculation}
 #Function to create boxplots from individual chromosomes' contact counts by reading in from a long-form data frame containing all info. Also returns a data frame specifying the values that represent the threshold for the top 'percents' of each distribution.
-chrom.analyzer <- function(chromosome, df, percents){
+chrom.analyzer <- function(chromosome, tab_df, percents){
   
-  chr.df <- filter(df, chr==chromosome) #Filter out to get the chromosome of interest
-  ggplot(chr.df, aes(x=bin, y=count)) + geom_boxplot(aes(group=bin)) #For actually visualizing the boxplots
-  
-  bins <- unique(df$bin) #Grab the bins
+  bins <- unique(tab_df$bin) #Grab the bins
   percents <- percents*.01 #Re-scale the percents to work with quantile in the loop below.
   
   values.df <- data.frame(matrix(nrow=length(bins), ncol=length(percents))) #Initialize the df to be returned
   colnames(values.df) <- percents #Initialize the df's colnames for iterating through
   rownames(values.df) <- bins #Initialize the df's rownames for iterating through
   
+  #Remove rows that are duplicate bins with each other!
+  characters <- (unique(nchar(as.character(tab_df$loc1)))-3)/2
+  start1 <- as.numeric(substr(as.character(tab_df$loc1), 2, characters+1))
+  start2 <- as.numeric(substr(as.character(tab_df$loc2), 2, characters+1))
+  tab_df <- tab_df[-which(start1==start2),]
+  
   for(bin in bins){
     for(percent in percents){
-      values.df[as.character(bin), as.character(percent)] <- quantile(chr.df$count[chr.df$bin==bin], 1-percent)[[1]]#To pull out the value above which are the top percent % of loci
+      values.df[as.character(bin), as.character(percent)] <- quantile(tab_df$count[tab_df$bin==bin], 1-percent)[[1]]#To pull out the value above which are the top percent % of loci
     }
   }
   return(values.df)
 }
 
-
+chrom.visualizer <- function(tab_df){
+  
+  #chr.df <- filter(df, chr==chromosome) #Filter out to get the chromosome of interest
+  #ggplot(chr.df, aes(x=bin, y=count)) + geom_boxplot(aes(group=bin)) #For actually visualizing the boxplots
+  
+}
 
 my.ps <- c(5, 2.5, 1, 0.5, 0.1)
-test <- chrom.analyzer("chr1", data, my.ps)
+test <- chrom.analyzer("chr22", tab_df.22.10kb, my.ps)
 
+```
+
+```{r Overlap of significance with Homer}
+setwd("/Users/ittaieres/Desktop/Hi-C/Hi-C Basic Analyze/homer.signif/sig_10kb")
+homer.10kb.chr1 <- read.delim("chr1_10kb_siglocs.txt", header=TRUE, stringsAsFactors = FALSE)
+head(homer.10kb.chr1)
+homer.10kb.chr1.bins1 <- as.factor(paste("[", homer.10kb.chr1$start.1, ",", homer.10kb.chr1$end.1, ")", sep=""))
+
+signif.comparison <- function(homer.file, tab_df, bin, sig_thresh){
+  
+  #Read in homer file.
+  homer.sig <- read.delim(homer.file, header=TRUE, stringsAsFactors = FALSE)
+  
+  #Reformat the homer file to be easier to work with for matching hereafter.
+  start1_new <- ifelse(homer.sig$start.1.<homer.sig$start.2., homer.sig$start.1., homer.sig$start.2.) #reorders columns so pos1 < pos2. important for not repeating bin pairs
+  start2_new <- ifelse(homer.sig$start.1.<homer.sig$start.2., homer.sig$start.2., homer.sig$start.1.) #If true, returns second arg; if false, returns third.
+  end1_new <-ifelse(homer.sig$start.1.<homer.sig$start.2., homer.sig$end.1., homer.sig$end.2.)
+  end2_new <- ifelse(homer.sig$start.1.<homer.sig$start.2., homer.sig$end.2., homer.sig$end.1.)
+  
+  #Assign the new columns.
+  homer.sig$start.1. <- start1_new
+  homer.sig$start.2. <- start2_new
+  homer.sig$end.1. <- end1_new
+  homer.sig$end.2. <- end2_new
+  
+  #Make a properly formatted DF of my significant hits.
+  tab_df <- tab_df[tab_df$count>=sig_thresh&tab_df$bin==bin,] #Pull out only values above the significance threshold in the right bin.
+  characters <- (unique(nchar(as.character(tab_df$loc1)))-3)/2
+  start1 <- as.numeric(substr(as.character(tab_df$loc1), 2, characters+1))
+  end1 <- as.numeric(substr(as.character(tab_df$loc1), characters+3, characters*2+2))
+  start2 <- as.numeric(substr(as.character(tab_df$loc2), 2, characters+1))
+  end2 <- as.numeric(substr(as.character(tab_df$loc2), characters+3, characters*2+2))
+  my.signifs <- data.frame(start1=start1, end1=end1, start2=start2, end2=end2)
+  
+  #Find the matching indices, i.e. the overlap of significant hits!
+  matching.indices <- which(my.signifs$start1 %in% homer.sig$start.1. & my.signifs$start2 %in% homer.sig$start.2.)
+  print(matching.indices)
+  return(homer.sig)
+}
+
+setwd("/Users/ittaieres/Desktop/Hi-C/Hi-C Basic Analyze/homer.signif/sig_10kb")
+test <- signif.comparison("chr1_10kb_siglocs.txt", tab_df.1.10kb, 30000, 77)
 ```
 
 
@@ -58,8 +119,8 @@ test <- chrom.analyzer("chr1", data, my.ps)
 optimize.bin.sums <- function(coverage_df){
   
    #define some necessary variables based on the coverage df; initiliaze some variables
-  bin.size <- coverage_df$pos2[1]-coverage_df$pos1[1]
-  window.slide <- coverage_df$pos1[2]-coverage_df$pos1[1]
+  bin.size <- coverage_df$end[1]-coverage_df$start[1]
+  window.slide <- coverage_df$start[2]-coverage_df$start[1]
   index.slide <- (bin.size/window.slide) #obtain the value for how many indices to slide forward for the sliding window!
   loc.index <- 1 #initialize an index for moving through the coverage_df
   coverage_df$bin <- 0 #intiailize another column in the coverage_df storing whether a given range ends up being a bin (1 for yes)
@@ -93,7 +154,7 @@ optimize.bin.sums <- function(coverage_df){
     coverage_df$bin[tmp.max.indices] <- 1 #assign a status of being a chosen bin to the indices that gave us the max sum!
     loc.index <- tail(tmp.max.indices, 1)+index.slide #Move the loc index to the next possible bin after the chosen set (tmp.max.indices)
   }
-  return(coverage_df[which(coverage_df$bin==1),-4:-5]) #return a df of all the bins and their counts. minus the "bin" column
+  return(coverage_df[which(coverage_df$bin==1),-5]) #return a df of all the bins and their counts. minus the "bin" column
 }
 
 #A function that tabulates the frequency of contact between different bins on a position dataframe.
@@ -117,30 +178,1136 @@ basic_tabulation <- function(pos_df, distance1, distance2, bins.df){
   else(return(0))#print("No contacts at that distance on this chromosome!"))
 }
 
-#Creates a list of vectors of contact counts for an individual chromosome at a variety of different distance bins (specified by user). 
+test2 <- basic_tabulation(pos_df.1, 30000, 35000, bins.1.10kb)
+
+#Creates a list of data frames of tabulation for an individual chromosome at a variety of different distance bins (specified by user). 
 indiv.chrom.tabulator <- function(pos_df, bins, start, end, by){
   distances <- seq(start, end, by) #Get the set of distances being looked at
   tabulation.list <- vector("list", length(distances))
   for(distance in 1:length(distances)){
     if(is.null(nrow(basic_tabulation(pos_df, distances[distance], distances[distance]+by, bins)))){next}
-    tabulation.list[[distance]] <- basic_tabulation(pos_df, distances[distance], distances[distance]+by, bins)$count
+    tabulation.list[[distance]] <- basic_tabulation(pos_df, distances[distance], distances[distance]+by, bins)
     }
   names(tabulation.list) <- distances
   return(tabulation.list)
 }
 
-#Creates a massive long-form dataframe containing information on count, mean, and chromosome for each distance bin--called on individual chromosomes at a time.
+#Creates a massive long-form dataframe containing information on count, mean, locus 1 and locus 2, and chromosome for each distance bin--called on individual chromosomes at a time.
 full.chrom.tabulator <- function(pos_df, bins, start, end, by, chr){
   distances <- seq(start, end, by) #Get the set of distances being looked at
   tabulation.list <- vector("list", length(distances))
   for(distance in 1:length(distances)){
     if(is.null(nrow(basic_tabulation(pos_df, distances[distance], distances[distance]+by, bins)))){next}
-    tmp.counts <- basic_tabulation(pos_df, distances[distance], distances[distance]+by, bins)$count
-    tmp.mean <- mean(tmp.counts)
-    tabulation.list[[distance]] <- data.frame(count=tmp.counts, bin=distances[distance], chr=chr, mean=tmp.mean)
+    tmp.table <- basic_tabulation(pos_df, distances[distance], distances[distance]+by, bins)
+    tabulation.list[[distance]] <- data.frame(chr=chr,  bin=distances[distance], loc1=tmp.table$pos1_bin, loc2=tmp.table$pos2_bin, count=tmp.table$count)
   }
   tabulation.df <- do.call(rbind, tabulation.list)
   return(tabulation.df)
 }
 ```
+
+```{r Data assignation}
+bins.1.10kb <- optimize.bin.sums(chr1.10kb)
+
+setwd("~/Desktop/Hi-C/Hi-C Basic Analyze")
+#Grab all the pos_dfs. Cut unix file of 2 paired end read columns, read pos1 and read pos2.
+pos_df.1 <- fread("just1", header=FALSE, stringsAsFactors = FALSE)
+pos_df.2 <- fread("just2", header=FALSE, stringsAsFactors = FALSE)
+pos_df.3 <- fread("just3", header=FALSE, stringsAsFactors = FALSE)
+pos_df.4 <- fread("just4", header=FALSE, stringsAsFactors = FALSE)
+pos_df.5 <- fread("just5", header=FALSE, stringsAsFactors = FALSE)
+pos_df.6 <- fread("just6", header=FALSE, stringsAsFactors = FALSE)
+pos_df.7 <- fread("just7", header=FALSE, stringsAsFactors = FALSE)
+pos_df.8 <- fread("just8", header=FALSE, stringsAsFactors = FALSE)
+pos_df.9 <- fread("just9", header=FALSE, stringsAsFactors = FALSE)
+pos_df.10 <- fread("just10", header=FALSE, stringsAsFactors = FALSE)
+pos_df.11 <- fread("just11", header=FALSE, stringsAsFactors = FALSE)
+pos_df.12 <- fread("just12", header=FALSE, stringsAsFactors = FALSE)
+pos_df.13 <- fread("just13", header=FALSE, stringsAsFactors = FALSE)
+pos_df.14 <- fread("just14", header=FALSE, stringsAsFactors = FALSE)
+pos_df.15 <- fread("just15", header=FALSE, stringsAsFactors = FALSE)
+pos_df.16 <- fread("just16", header=FALSE, stringsAsFactors = FALSE)
+pos_df.17 <- fread("just17", header=FALSE, stringsAsFactors = FALSE)
+pos_df.18 <- fread("just18", header=FALSE, stringsAsFactors = FALSE)
+pos_df.19 <- fread("just19", header=FALSE, stringsAsFactors = FALSE)
+pos_df.20 <- fread("just20", header=FALSE, stringsAsFactors = FALSE)
+pos_df.21 <- fread("just21", header=FALSE, stringsAsFactors = FALSE)
+pos_df.22 <- fread("just22", header=FALSE, stringsAsFactors = FALSE)
+pos_df.X <- fread("justX", header=FALSE, stringsAsFactors = FALSE)
+pos_df.Y <- fread("justY", header=FALSE, stringsAsFactors = FALSE)
+
+#Get the bedtools-created coverage data frames in order to optimize bin sums.
+setwd("~/Desktop/Hi-C/Hi-C Basic Analyze/coverage/current")
+coverage.10kb <- read.delim("coverage_10kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.20kb <- read.delim("coverage_20kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.30kb <- read.delim("coverage_30kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.40kb <- read.delim("coverage_40kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.50kb <- read.delim("coverage_50kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.60kb <- read.delim("coverage_60kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.70kb <- read.delim("coverage_70kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.80kb <- read.delim("coverage_80kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.90kb <- read.delim("coverage_90kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.100kb <- read.delim("coverage_100kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.125kb <- read.delim("coverage_125kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.150kb <- read.delim("coverage_150kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.200kb <- read.delim("coverage_200kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+
+#Assign their column names.
+colnames(coverage.10kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.20kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.30kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.40kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.50kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.60kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.70kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.80kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.90kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.100kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.125kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.150kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.200kb) <- c("chr", "pos1", "pos2", "count")
+
+#Get the coverage for .10kb for all the chromosomes
+chr1.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr1"),]
+chr2.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr2"),]
+chr3.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr3"),]
+chr4.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr4"),]
+chr5.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr5"),]
+chr6.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr6"),]
+chr7.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr7"),]
+chr8.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr8"),]
+chr9.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr9"),]
+chr10.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr10"),]
+chr11.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr11"),]
+chr12.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr12"),]
+chr13.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr13"),]
+chr14.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr14"),]
+chr15.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr15"),]
+chr16.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr16"),]
+chr17.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr17"),]
+chr18.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr18"),]
+chr19.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr19"),]
+chr20.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr20"),]
+chr21.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr21"),]
+chr22.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr22"),]
+chrX.10kb <- coverage.10kb[which(coverage.10kb$chr=="chrX"),]
+chrY.10kb <- coverage.10kb[which(coverage.10kb$chr=="chrY"),]
+
+#Get the coverage for .20kb for all the chromosomes
+chr1.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr1"),]
+chr2.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr2"),]
+chr3.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr3"),]
+chr4.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr4"),]
+chr5.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr5"),]
+chr6.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr6"),]
+chr7.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr7"),]
+chr8.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr8"),]
+chr9.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr9"),]
+chr10.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr10"),]
+chr11.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr11"),]
+chr12.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr12"),]
+chr13.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr13"),]
+chr14.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr14"),]
+chr15.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr15"),]
+chr16.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr16"),]
+chr17.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr17"),]
+chr18.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr18"),]
+chr19.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr19"),]
+chr20.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr20"),]
+chr21.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr21"),]
+chr22.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr22"),]
+chrX.20kb <- coverage.20kb[which(coverage.20kb$chr=="chrX"),]
+chrY.20kb <- coverage.20kb[which(coverage.20kb$chr=="chrY"),]
+
+#Get the coverage for .30kb for all the chromosomes
+chr1.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr1"),]
+chr2.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr2"),]
+chr3.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr3"),]
+chr4.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr4"),]
+chr5.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr5"),]
+chr6.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr6"),]
+chr7.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr7"),]
+chr8.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr8"),]
+chr9.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr9"),]
+chr10.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr10"),]
+chr11.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr11"),]
+chr12.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr12"),]
+chr13.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr13"),]
+chr14.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr14"),]
+chr15.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr15"),]
+chr16.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr16"),]
+chr17.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr17"),]
+chr18.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr18"),]
+chr19.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr19"),]
+chr20.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr20"),]
+chr21.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr21"),]
+chr22.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr22"),]
+chrX.30kb <- coverage.30kb[which(coverage.30kb$chr=="chrX"),]
+chrY.30kb <- coverage.30kb[which(coverage.30kb$chr=="chrY"),]
+
+#Get the coverage for .40kb for all the chromosomes
+chr1.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr1"),]
+chr2.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr2"),]
+chr3.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr3"),]
+chr4.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr4"),]
+chr5.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr5"),]
+chr6.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr6"),]
+chr7.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr7"),]
+chr8.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr8"),]
+chr9.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr9"),]
+chr10.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr10"),]
+chr11.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr11"),]
+chr12.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr12"),]
+chr13.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr13"),]
+chr14.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr14"),]
+chr15.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr15"),]
+chr16.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr16"),]
+chr17.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr17"),]
+chr18.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr18"),]
+chr19.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr19"),]
+chr20.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr20"),]
+chr21.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr21"),]
+chr22.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr22"),]
+chrX.40kb <- coverage.40kb[which(coverage.40kb$chr=="chrX"),]
+chrY.40kb <- coverage.40kb[which(coverage.40kb$chr=="chrY"),]
+
+#Get the coverage for .50kb for all the chromosomes
+chr1.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr1"),]
+chr2.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr2"),]
+chr3.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr3"),]
+chr4.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr4"),]
+chr5.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr5"),]
+chr6.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr6"),]
+chr7.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr7"),]
+chr8.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr8"),]
+chr9.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr9"),]
+chr10.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr10"),]
+chr11.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr11"),]
+chr12.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr12"),]
+chr13.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr13"),]
+chr14.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr14"),]
+chr15.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr15"),]
+chr16.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr16"),]
+chr17.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr17"),]
+chr18.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr18"),]
+chr19.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr19"),]
+chr20.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr20"),]
+chr21.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr21"),]
+chr22.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr22"),]
+chrX.50kb <- coverage.50kb[which(coverage.50kb$chr=="chrX"),]
+chrY.50kb <- coverage.50kb[which(coverage.50kb$chr=="chrY"),]
+
+#Get the coverage for .60kb for all the chromosomes
+chr1.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr1"),]
+chr2.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr2"),]
+chr3.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr3"),]
+chr4.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr4"),]
+chr5.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr5"),]
+chr6.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr6"),]
+chr7.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr7"),]
+chr8.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr8"),]
+chr9.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr9"),]
+chr10.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr10"),]
+chr11.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr11"),]
+chr12.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr12"),]
+chr13.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr13"),]
+chr14.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr14"),]
+chr15.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr15"),]
+chr16.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr16"),]
+chr17.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr17"),]
+chr18.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr18"),]
+chr19.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr19"),]
+chr20.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr20"),]
+chr21.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr21"),]
+chr22.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr22"),]
+chrX.60kb <- coverage.60kb[which(coverage.60kb$chr=="chrX"),]
+chrY.60kb <- coverage.60kb[which(coverage.60kb$chr=="chrY"),]
+
+#Get the coverage for .70kb for all the chromosomes
+chr1.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr1"),]
+chr2.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr2"),]
+chr3.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr3"),]
+chr4.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr4"),]
+chr5.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr5"),]
+chr6.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr6"),]
+chr7.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr7"),]
+chr8.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr8"),]
+chr9.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr9"),]
+chr10.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr10"),]
+chr11.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr11"),]
+chr12.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr12"),]
+chr13.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr13"),]
+chr14.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr14"),]
+chr15.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr15"),]
+chr16.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr16"),]
+chr17.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr17"),]
+chr18.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr18"),]
+chr19.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr19"),]
+chr20.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr20"),]
+chr21.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr21"),]
+chr22.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr22"),]
+chrX.70kb <- coverage.70kb[which(coverage.70kb$chr=="chrX"),]
+chrY.70kb <- coverage.70kb[which(coverage.70kb$chr=="chrY"),]
+
+#Get the coverage for .80kb for all the chromosomes
+chr1.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr1"),]
+chr2.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr2"),]
+chr3.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr3"),]
+chr4.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr4"),]
+chr5.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr5"),]
+chr6.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr6"),]
+chr7.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr7"),]
+chr8.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr8"),]
+chr9.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr9"),]
+chr10.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr10"),]
+chr11.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr11"),]
+chr12.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr12"),]
+chr13.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr13"),]
+chr14.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr14"),]
+chr15.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr15"),]
+chr16.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr16"),]
+chr17.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr17"),]
+chr18.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr18"),]
+chr19.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr19"),]
+chr20.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr20"),]
+chr21.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr21"),]
+chr22.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr22"),]
+chrX.80kb <- coverage.80kb[which(coverage.80kb$chr=="chrX"),]
+chrY.80kb <- coverage.80kb[which(coverage.80kb$chr=="chrY"),]
+
+#Get the coverage for .90kb for all the chromosomes
+chr1.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr1"),]
+chr2.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr2"),]
+chr3.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr3"),]
+chr4.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr4"),]
+chr5.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr5"),]
+chr6.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr6"),]
+chr7.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr7"),]
+chr8.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr8"),]
+chr9.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr9"),]
+chr10.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr10"),]
+chr11.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr11"),]
+chr12.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr12"),]
+chr13.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr13"),]
+chr14.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr14"),]
+chr15.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr15"),]
+chr16.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr16"),]
+chr17.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr17"),]
+chr18.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr18"),]
+chr19.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr19"),]
+chr20.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr20"),]
+chr21.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr21"),]
+chr22.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr22"),]
+chrX.90kb <- coverage.90kb[which(coverage.90kb$chr=="chrX"),]
+chrY.90kb <- coverage.90kb[which(coverage.90kb$chr=="chrY"),]
+
+#Get the coverage for .100kb for all the chromosomes
+chr1.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr1"),]
+chr2.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr2"),]
+chr3.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr3"),]
+chr4.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr4"),]
+chr5.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr5"),]
+chr6.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr6"),]
+chr7.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr7"),]
+chr8.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr8"),]
+chr9.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr9"),]
+chr10.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr10"),]
+chr11.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr11"),]
+chr12.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr12"),]
+chr13.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr13"),]
+chr14.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr14"),]
+chr15.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr15"),]
+chr16.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr16"),]
+chr17.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr17"),]
+chr18.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr18"),]
+chr19.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr19"),]
+chr20.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr20"),]
+chr21.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr21"),]
+chr22.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr22"),]
+chrX.100kb <- coverage.100kb[which(coverage.100kb$chr=="chrX"),]
+chrY.100kb <- coverage.100kb[which(coverage.100kb$chr=="chrY"),]
+
+#Get the coverage for .125kb for all the chromosomes
+chr1.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr1"),]
+chr2.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr2"),]
+chr3.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr3"),]
+chr4.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr4"),]
+chr5.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr5"),]
+chr6.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr6"),]
+chr7.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr7"),]
+chr8.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr8"),]
+chr9.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr9"),]
+chr10.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr10"),]
+chr11.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr11"),]
+chr12.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr12"),]
+chr13.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr13"),]
+chr14.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr14"),]
+chr15.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr15"),]
+chr16.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr16"),]
+chr17.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr17"),]
+chr18.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr18"),]
+chr19.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr19"),]
+chr20.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr20"),]
+chr21.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr21"),]
+chr22.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr22"),]
+chrX.125kb <- coverage.125kb[which(coverage.125kb$chr=="chrX"),]
+chrY.125kb <- coverage.125kb[which(coverage.125kb$chr=="chrY"),]
+
+#Get the coverage for .150kb for all the chromosomes
+chr1.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr1"),]
+chr2.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr2"),]
+chr3.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr3"),]
+chr4.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr4"),]
+chr5.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr5"),]
+chr6.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr6"),]
+chr7.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr7"),]
+chr8.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr8"),]
+chr9.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr9"),]
+chr10.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr10"),]
+chr11.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr11"),]
+chr12.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr12"),]
+chr13.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr13"),]
+chr14.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr14"),]
+chr15.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr15"),]
+chr16.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr16"),]
+chr17.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr17"),]
+chr18.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr18"),]
+chr19.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr19"),]
+chr20.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr20"),]
+chr21.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr21"),]
+chr22.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr22"),]
+chrX.150kb <- coverage.150kb[which(coverage.150kb$chr=="chrX"),]
+chrY.150kb <- coverage.150kb[which(coverage.150kb$chr=="chrY"),]
+
+#Get the coverage for .200kb for all the chromosomes
+chr1.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr1"),]
+chr2.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr2"),]
+chr3.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr3"),]
+chr4.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr4"),]
+chr5.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr5"),]
+chr6.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr6"),]
+chr7.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr7"),]
+chr8.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr8"),]
+chr9.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr9"),]
+chr10.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr10"),]
+chr11.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr11"),]
+chr12.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr12"),]
+chr13.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr13"),]
+chr14.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr14"),]
+chr15.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr15"),]
+chr16.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr16"),]
+chr17.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr17"),]
+chr18.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr18"),]
+chr19.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr19"),]
+chr20.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr20"),]
+chr21.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr21"),]
+chr22.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr22"),]
+chrX.200kb <- coverage.200kb[which(coverage.200kb$chr=="chrX"),]
+chrY.200kb <- coverage.200kb[which(coverage.200kb$chr=="chrY"),]
+
+
+
+#Get the bins for .50kb for all the chromosomes.
+bins.1.50kb <- optimize.bin.sums(chr1.50kb)
+bins.2.50kb <- optimize.bin.sums(chr2.50kb)
+bins.3.50kb <- optimize.bin.sums(chr3.50kb)
+bins.4.50kb <- optimize.bin.sums(chr4.50kb)
+bins.5.50kb <- optimize.bin.sums(chr5.50kb)
+bins.6.50kb <- optimize.bin.sums(chr6.50kb)
+bins.7.50kb <- optimize.bin.sums(chr7.50kb)
+bins.8.50kb <- optimize.bin.sums(chr8.50kb)
+bins.9.50kb <- optimize.bin.sums(chr9.50kb)
+bins.10.50kb <- optimize.bin.sums(chr10.50kb)
+bins.11.50kb <- optimize.bin.sums(chr11.50kb)
+bins.12.50kb <- optimize.bin.sums(chr12.50kb)
+bins.13.50kb <- optimize.bin.sums(chr13.50kb)
+bins.14.50kb <- optimize.bin.sums(chr14.50kb)
+bins.15.50kb <- optimize.bin.sums(chr15.50kb)
+bins.16.50kb <- optimize.bin.sums(chr16.50kb)
+bins.17.50kb <- optimize.bin.sums(chr17.50kb)
+bins.18.50kb <- optimize.bin.sums(chr18.50kb)
+bins.19.50kb <- optimize.bin.sums(chr19.50kb)
+bins.20.50kb <- optimize.bin.sums(chr20.50kb)
+bins.21.50kb <- optimize.bin.sums(chr21.50kb)
+bins.22.50kb <- optimize.bin.sums(chr22.50kb)
+bins.X.50kb <- optimize.bin.sums(chrX.50kb)
+bins.Y.50kb <- optimize.bin.sums(chrY.50kb)
+
+#Get the bins for .60kb for all the chromosomes.
+bins.1.60kb <- optimize.bin.sums(chr1.60kb)
+bins.2.60kb <- optimize.bin.sums(chr2.60kb)
+bins.3.60kb <- optimize.bin.sums(chr3.60kb)
+bins.4.60kb <- optimize.bin.sums(chr4.60kb)
+bins.5.60kb <- optimize.bin.sums(chr5.60kb)
+bins.6.60kb <- optimize.bin.sums(chr6.60kb)
+bins.7.60kb <- optimize.bin.sums(chr7.60kb)
+bins.8.60kb <- optimize.bin.sums(chr8.60kb)
+bins.9.60kb <- optimize.bin.sums(chr9.60kb)
+bins.10.60kb <- optimize.bin.sums(chr10.60kb)
+bins.11.60kb <- optimize.bin.sums(chr11.60kb)
+bins.12.60kb <- optimize.bin.sums(chr12.60kb)
+bins.13.60kb <- optimize.bin.sums(chr13.60kb)
+bins.14.60kb <- optimize.bin.sums(chr14.60kb)
+bins.15.60kb <- optimize.bin.sums(chr15.60kb)
+bins.16.60kb <- optimize.bin.sums(chr16.60kb)
+bins.17.60kb <- optimize.bin.sums(chr17.60kb)
+bins.18.60kb <- optimize.bin.sums(chr18.60kb)
+bins.19.60kb <- optimize.bin.sums(chr19.60kb)
+bins.20.60kb <- optimize.bin.sums(chr20.60kb)
+bins.21.60kb <- optimize.bin.sums(chr21.60kb)
+bins.22.60kb <- optimize.bin.sums(chr22.60kb)
+bins.X.60kb <- optimize.bin.sums(chrX.60kb)
+bins.Y.60kb <- optimize.bin.sums(chrY.60kb)
+
+#Get the bins for .70kb for all the chromosomes.
+bins.1.70kb <- optimize.bin.sums(chr1.70kb)
+bins.2.70kb <- optimize.bin.sums(chr2.70kb)
+bins.3.70kb <- optimize.bin.sums(chr3.70kb)
+bins.4.70kb <- optimize.bin.sums(chr4.70kb)
+bins.5.70kb <- optimize.bin.sums(chr5.70kb)
+bins.6.70kb <- optimize.bin.sums(chr6.70kb)
+bins.7.70kb <- optimize.bin.sums(chr7.70kb)
+bins.8.70kb <- optimize.bin.sums(chr8.70kb)
+bins.9.70kb <- optimize.bin.sums(chr9.70kb)
+bins.10.70kb <- optimize.bin.sums(chr10.70kb)
+bins.11.70kb <- optimize.bin.sums(chr11.70kb)
+bins.12.70kb <- optimize.bin.sums(chr12.70kb)
+bins.13.70kb <- optimize.bin.sums(chr13.70kb)
+bins.14.70kb <- optimize.bin.sums(chr14.70kb)
+bins.15.70kb <- optimize.bin.sums(chr15.70kb)
+bins.16.70kb <- optimize.bin.sums(chr16.70kb)
+bins.17.70kb <- optimize.bin.sums(chr17.70kb)
+bins.18.70kb <- optimize.bin.sums(chr18.70kb)
+bins.19.70kb <- optimize.bin.sums(chr19.70kb)
+bins.20.70kb <- optimize.bin.sums(chr20.70kb)
+bins.21.70kb <- optimize.bin.sums(chr21.70kb)
+bins.22.70kb <- optimize.bin.sums(chr22.70kb)
+bins.X.70kb <- optimize.bin.sums(chrX.70kb)
+bins.Y.70kb <- optimize.bin.sums(chrY.70kb)
+
+#Get the bins for .80kb for all the chromosomes.
+bins.1.80kb <- optimize.bin.sums(chr1.80kb)
+bins.2.80kb <- optimize.bin.sums(chr2.80kb)
+bins.3.80kb <- optimize.bin.sums(chr3.80kb)
+bins.4.80kb <- optimize.bin.sums(chr4.80kb)
+bins.5.80kb <- optimize.bin.sums(chr5.80kb)
+bins.6.80kb <- optimize.bin.sums(chr6.80kb)
+bins.7.80kb <- optimize.bin.sums(chr7.80kb)
+bins.8.80kb <- optimize.bin.sums(chr8.80kb)
+bins.9.80kb <- optimize.bin.sums(chr9.80kb)
+bins.10.80kb <- optimize.bin.sums(chr10.80kb)
+bins.11.80kb <- optimize.bin.sums(chr11.80kb)
+bins.12.80kb <- optimize.bin.sums(chr12.80kb)
+bins.13.80kb <- optimize.bin.sums(chr13.80kb)
+bins.14.80kb <- optimize.bin.sums(chr14.80kb)
+bins.15.80kb <- optimize.bin.sums(chr15.80kb)
+bins.16.80kb <- optimize.bin.sums(chr16.80kb)
+bins.17.80kb <- optimize.bin.sums(chr17.80kb)
+bins.18.80kb <- optimize.bin.sums(chr18.80kb)
+bins.19.80kb <- optimize.bin.sums(chr19.80kb)
+bins.20.80kb <- optimize.bin.sums(chr20.80kb)
+bins.21.80kb <- optimize.bin.sums(chr21.80kb)
+bins.22.80kb <- optimize.bin.sums(chr22.80kb)
+bins.X.80kb <- optimize.bin.sums(chrX.80kb)
+bins.Y.80kb <- optimize.bin.sums(chrY.80kb)
+
+#Get the bins for .90kb for all the chromosomes.
+bins.1.90kb <- optimize.bin.sums(chr1.90kb)
+bins.2.90kb <- optimize.bin.sums(chr2.90kb)
+bins.3.90kb <- optimize.bin.sums(chr3.90kb)
+bins.4.90kb <- optimize.bin.sums(chr4.90kb)
+bins.5.90kb <- optimize.bin.sums(chr5.90kb)
+bins.6.90kb <- optimize.bin.sums(chr6.90kb)
+bins.7.90kb <- optimize.bin.sums(chr7.90kb)
+bins.8.90kb <- optimize.bin.sums(chr8.90kb)
+bins.9.90kb <- optimize.bin.sums(chr9.90kb)
+bins.10.90kb <- optimize.bin.sums(chr10.90kb)
+bins.11.90kb <- optimize.bin.sums(chr11.90kb)
+bins.12.90kb <- optimize.bin.sums(chr12.90kb)
+bins.13.90kb <- optimize.bin.sums(chr13.90kb)
+bins.14.90kb <- optimize.bin.sums(chr14.90kb)
+bins.15.90kb <- optimize.bin.sums(chr15.90kb)
+bins.16.90kb <- optimize.bin.sums(chr16.90kb)
+bins.17.90kb <- optimize.bin.sums(chr17.90kb)
+bins.18.90kb <- optimize.bin.sums(chr18.90kb)
+bins.19.90kb <- optimize.bin.sums(chr19.90kb)
+bins.20.90kb <- optimize.bin.sums(chr20.90kb)
+bins.21.90kb <- optimize.bin.sums(chr21.90kb)
+bins.22.90kb <- optimize.bin.sums(chr22.90kb)
+bins.X.90kb <- optimize.bin.sums(chrX.90kb)
+bins.Y.90kb <- optimize.bin.sums(chrY.90kb)
+
+#Get the bins for .100kb for all the chromosomes.
+bins.1.100kb <- optimize.bin.sums(chr1.100kb)
+bins.2.100kb <- optimize.bin.sums(chr2.100kb)
+bins.3.100kb <- optimize.bin.sums(chr3.100kb)
+bins.4.100kb <- optimize.bin.sums(chr4.100kb)
+bins.5.100kb <- optimize.bin.sums(chr5.100kb)
+bins.6.100kb <- optimize.bin.sums(chr6.100kb)
+bins.7.100kb <- optimize.bin.sums(chr7.100kb)
+bins.8.100kb <- optimize.bin.sums(chr8.100kb)
+bins.9.100kb <- optimize.bin.sums(chr9.100kb)
+bins.10.100kb <- optimize.bin.sums(chr10.100kb)
+bins.11.100kb <- optimize.bin.sums(chr11.100kb)
+bins.12.100kb <- optimize.bin.sums(chr12.100kb)
+bins.13.100kb <- optimize.bin.sums(chr13.100kb)
+bins.14.100kb <- optimize.bin.sums(chr14.100kb)
+bins.15.100kb <- optimize.bin.sums(chr15.100kb)
+bins.16.100kb <- optimize.bin.sums(chr16.100kb)
+bins.17.100kb <- optimize.bin.sums(chr17.100kb)
+bins.18.100kb <- optimize.bin.sums(chr18.100kb)
+bins.19.100kb <- optimize.bin.sums(chr19.100kb)
+bins.20.100kb <- optimize.bin.sums(chr20.100kb)
+bins.21.100kb <- optimize.bin.sums(chr21.100kb)
+bins.22.100kb <- optimize.bin.sums(chr22.100kb)
+bins.X.100kb <- optimize.bin.sums(chrX.100kb)
+bins.Y.100kb <- optimize.bin.sums(chrY.100kb)
+
+#Get the bins for .125kb for all the chromosomes.
+bins.1.125kb <- optimize.bin.sums(chr1.125kb)
+bins.2.125kb <- optimize.bin.sums(chr2.125kb)
+bins.3.125kb <- optimize.bin.sums(chr3.125kb)
+bins.4.125kb <- optimize.bin.sums(chr4.125kb)
+bins.5.125kb <- optimize.bin.sums(chr5.125kb)
+bins.6.125kb <- optimize.bin.sums(chr6.125kb)
+bins.7.125kb <- optimize.bin.sums(chr7.125kb)
+bins.8.125kb <- optimize.bin.sums(chr8.125kb)
+bins.9.125kb <- optimize.bin.sums(chr9.125kb)
+bins.10.125kb <- optimize.bin.sums(chr10.125kb)
+bins.11.125kb <- optimize.bin.sums(chr11.125kb)
+bins.12.125kb <- optimize.bin.sums(chr12.125kb)
+bins.13.125kb <- optimize.bin.sums(chr13.125kb)
+bins.14.125kb <- optimize.bin.sums(chr14.125kb)
+bins.15.125kb <- optimize.bin.sums(chr15.125kb)
+bins.16.125kb <- optimize.bin.sums(chr16.125kb)
+bins.17.125kb <- optimize.bin.sums(chr17.125kb)
+bins.18.125kb <- optimize.bin.sums(chr18.125kb)
+bins.19.125kb <- optimize.bin.sums(chr19.125kb)
+bins.20.125kb <- optimize.bin.sums(chr20.125kb)
+bins.21.125kb <- optimize.bin.sums(chr21.125kb)
+bins.22.125kb <- optimize.bin.sums(chr22.125kb)
+bins.X.125kb <- optimize.bin.sums(chrX.125kb)
+bins.Y.125kb <- optimize.bin.sums(chrY.125kb)
+
+#Get the bins for .150kb for all the chromosomes.
+bins.1.150kb <- optimize.bin.sums(chr1.150kb)
+bins.2.150kb <- optimize.bin.sums(chr2.150kb)
+bins.3.150kb <- optimize.bin.sums(chr3.150kb)
+bins.4.150kb <- optimize.bin.sums(chr4.150kb)
+bins.5.150kb <- optimize.bin.sums(chr5.150kb)
+bins.6.150kb <- optimize.bin.sums(chr6.150kb)
+bins.7.150kb <- optimize.bin.sums(chr7.150kb)
+bins.8.150kb <- optimize.bin.sums(chr8.150kb)
+bins.9.150kb <- optimize.bin.sums(chr9.150kb)
+bins.10.150kb <- optimize.bin.sums(chr10.150kb)
+bins.11.150kb <- optimize.bin.sums(chr11.150kb)
+bins.12.150kb <- optimize.bin.sums(chr12.150kb)
+bins.13.150kb <- optimize.bin.sums(chr13.150kb)
+bins.14.150kb <- optimize.bin.sums(chr14.150kb)
+bins.15.150kb <- optimize.bin.sums(chr15.150kb)
+bins.16.150kb <- optimize.bin.sums(chr16.150kb)
+bins.17.150kb <- optimize.bin.sums(chr17.150kb)
+bins.18.150kb <- optimize.bin.sums(chr18.150kb)
+bins.19.150kb <- optimize.bin.sums(chr19.150kb)
+bins.20.150kb <- optimize.bin.sums(chr20.150kb)
+bins.21.150kb <- optimize.bin.sums(chr21.150kb)
+bins.22.150kb <- optimize.bin.sums(chr22.150kb)
+bins.X.150kb <- optimize.bin.sums(chrX.150kb)
+bins.Y.150kb <- optimize.bin.sums(chrY.150kb)
+
+#Get the bins for .200kb for all the chromosomes.
+bins.1.200kb <- optimize.bin.sums(chr1.200kb)
+bins.2.200kb <- optimize.bin.sums(chr2.200kb)
+bins.3.200kb <- optimize.bin.sums(chr3.200kb)
+bins.4.200kb <- optimize.bin.sums(chr4.200kb)
+bins.5.200kb <- optimize.bin.sums(chr5.200kb)
+bins.6.200kb <- optimize.bin.sums(chr6.200kb)
+bins.7.200kb <- optimize.bin.sums(chr7.200kb)
+bins.8.200kb <- optimize.bin.sums(chr8.200kb)
+bins.9.200kb <- optimize.bin.sums(chr9.200kb)
+bins.10.200kb <- optimize.bin.sums(chr10.200kb)
+bins.11.200kb <- optimize.bin.sums(chr11.200kb)
+bins.12.200kb <- optimize.bin.sums(chr12.200kb)
+bins.13.200kb <- optimize.bin.sums(chr13.200kb)
+bins.14.200kb <- optimize.bin.sums(chr14.200kb)
+bins.15.200kb <- optimize.bin.sums(chr15.200kb)
+bins.16.200kb <- optimize.bin.sums(chr16.200kb)
+bins.17.200kb <- optimize.bin.sums(chr17.200kb)
+bins.18.200kb <- optimize.bin.sums(chr18.200kb)
+bins.19.200kb <- optimize.bin.sums(chr19.200kb)
+bins.20.200kb <- optimize.bin.sums(chr20.200kb)
+bins.21.200kb <- optimize.bin.sums(chr21.200kb)
+bins.22.200kb <- optimize.bin.sums(chr22.200kb)
+bins.X.200kb <- optimize.bin.sums(chrX.200kb)
+bins.Y.200kb <- optimize.bin.sums(chrY.200kb)
+
+
+#Get the tabulation DFs with basic count and bin factors for all the different kb "locus" sizes
+tab_df.1.10kb <- full.chrom.tabulator(pos_df.1, bins.1.10kb, 0, 100000, 5000, "chr1")
+tab_df.2.10kb <- full.chrom.tabulator(pos_df.2, bins.2.10kb, 0, 100000, 5000, "chr2")
+tab_df.3.10kb <- full.chrom.tabulator(pos_df.3, bins.3.10kb, 0, 100000, 5000, "chr3")
+tab_df.4.10kb <- full.chrom.tabulator(pos_df.4, bins.4.10kb, 0, 100000, 5000, "chr4")
+tab_df.5.10kb <- full.chrom.tabulator(pos_df.5, bins.5.10kb, 0, 100000, 5000, "chr5")
+tab_df.6.10kb <- full.chrom.tabulator(pos_df.6, bins.6.10kb, 0, 100000, 5000, "chr6")
+tab_df.7.10kb <- full.chrom.tabulator(pos_df.7, bins.7.10kb, 0, 100000, 5000, "chr7")
+tab_df.8.10kb <- full.chrom.tabulator(pos_df.8, bins.8.10kb, 0, 100000, 5000, "chr8")
+tab_df.9.10kb <- full.chrom.tabulator(pos_df.9, bins.9.10kb, 0, 100000, 5000, "chr9")
+tab_df.10.10kb <- full.chrom.tabulator(pos_df.10, bins.10.10kb, 0, 100000, 5000, "chr10")
+tab_df.11.10kb <- full.chrom.tabulator(pos_df.11, bins.11.10kb, 0, 100000, 5000, "chr11")
+tab_df.12.10kb <- full.chrom.tabulator(pos_df.12, bins.12.10kb, 0, 100000, 5000, "chr12")
+tab_df.13.10kb <- full.chrom.tabulator(pos_df.13, bins.13.10kb, 0, 100000, 5000, "chr13")
+tab_df.14.10kb <- full.chrom.tabulator(pos_df.14, bins.14.10kb, 0, 100000, 5000, "chr14")
+tab_df.15.10kb <- full.chrom.tabulator(pos_df.15, bins.15.10kb, 0, 100000, 5000, "chr15")
+tab_df.16.10kb <- full.chrom.tabulator(pos_df.16, bins.16.10kb, 0, 100000, 5000, "chr16")
+tab_df.17.10kb <- full.chrom.tabulator(pos_df.17, bins.17.10kb, 0, 100000, 5000, "chr17")
+tab_df.18.10kb <- full.chrom.tabulator(pos_df.18, bins.18.10kb, 0, 100000, 5000, "chr18")
+tab_df.19.10kb <- full.chrom.tabulator(pos_df.19, bins.19.10kb, 0, 100000, 5000, "chr19")
+tab_df.20.10kb <- full.chrom.tabulator(pos_df.20, bins.20.10kb, 0, 100000, 5000, "chr20")
+tab_df.21.10kb <- full.chrom.tabulator(pos_df.21, bins.21.10kb, 0, 100000, 5000, "chr21")
+tab_df.22.10kb <- full.chrom.tabulator(pos_df.22, bins.22.10kb, 0, 100000, 5000, "chr22")
+tab_df.X.10kb <- full.chrom.tabulator(pos_df.X, bins.X.10kb, 0, 100000, 5000, "chrX")
+tab_df.Y.10kb <- full.chrom.tabulator(pos_df.Y, bins.Y.10kb, 0, 100000, 5000, "chrY")
+
+
+tab_df.1.20kb <- full.chrom.tabulator(pos_df.1, bins.1.20kb, 0, 100000, 5000, "chr1")
+tab_df.2.20kb <- full.chrom.tabulator(pos_df.2, bins.2.20kb, 0, 100000, 5000, "chr2")
+tab_df.3.20kb <- full.chrom.tabulator(pos_df.3, bins.3.20kb, 0, 100000, 5000, "chr3")
+tab_df.4.20kb <- full.chrom.tabulator(pos_df.4, bins.4.20kb, 0, 100000, 5000, "chr4")
+tab_df.5.20kb <- full.chrom.tabulator(pos_df.5, bins.5.20kb, 0, 100000, 5000, "chr5")
+tab_df.6.20kb <- full.chrom.tabulator(pos_df.6, bins.6.20kb, 0, 100000, 5000, "chr6")
+tab_df.7.20kb <- full.chrom.tabulator(pos_df.7, bins.7.20kb, 0, 100000, 5000, "chr7")
+tab_df.8.20kb <- full.chrom.tabulator(pos_df.8, bins.8.20kb, 0, 100000, 5000, "chr8")
+tab_df.9.20kb <- full.chrom.tabulator(pos_df.9, bins.9.20kb, 0, 100000, 5000, "chr9")
+tab_df.10.20kb <- full.chrom.tabulator(pos_df.10, bins.10.20kb, 0, 100000, 5000, "chr10")
+tab_df.11.20kb <- full.chrom.tabulator(pos_df.11, bins.11.20kb, 0, 100000, 5000, "chr11")
+tab_df.12.20kb <- full.chrom.tabulator(pos_df.12, bins.12.20kb, 0, 100000, 5000, "chr12")
+tab_df.13.20kb <- full.chrom.tabulator(pos_df.13, bins.13.20kb, 0, 100000, 5000, "chr13")
+tab_df.14.20kb <- full.chrom.tabulator(pos_df.14, bins.14.20kb, 0, 100000, 5000, "chr14")
+tab_df.15.20kb <- full.chrom.tabulator(pos_df.15, bins.15.20kb, 0, 100000, 5000, "chr15")
+tab_df.16.20kb <- full.chrom.tabulator(pos_df.16, bins.16.20kb, 0, 100000, 5000, "chr16")
+tab_df.17.20kb <- full.chrom.tabulator(pos_df.17, bins.17.20kb, 0, 100000, 5000, "chr17")
+tab_df.18.20kb <- full.chrom.tabulator(pos_df.18, bins.18.20kb, 0, 100000, 5000, "chr18")
+tab_df.19.20kb <- full.chrom.tabulator(pos_df.19, bins.19.20kb, 0, 100000, 5000, "chr19")
+tab_df.20.20kb <- full.chrom.tabulator(pos_df.20, bins.20.20kb, 0, 100000, 5000, "chr20")
+tab_df.21.20kb <- full.chrom.tabulator(pos_df.21, bins.21.20kb, 0, 100000, 5000, "chr21")
+tab_df.22.20kb <- full.chrom.tabulator(pos_df.22, bins.22.20kb, 0, 100000, 5000, "chr22")
+tab_df.X.20kb <- full.chrom.tabulator(pos_df.X, bins.X.20kb, 0, 100000, 5000, "chrX")
+tab_df.Y.20kb <- full.chrom.tabulator(pos_df.Y, bins.Y.20kb, 0, 100000, 5000, "chrY")
+
+
+tab_df.1.30kb <- full.chrom.tabulator(pos_df.1, bins.1.30kb, 0, 100000, 5000, "chr1")
+tab_df.2.30kb <- full.chrom.tabulator(pos_df.2, bins.2.30kb, 0, 100000, 5000, "chr2")
+tab_df.3.30kb <- full.chrom.tabulator(pos_df.3, bins.3.30kb, 0, 100000, 5000, "chr3")
+tab_df.4.30kb <- full.chrom.tabulator(pos_df.4, bins.4.30kb, 0, 100000, 5000, "chr4")
+tab_df.5.30kb <- full.chrom.tabulator(pos_df.5, bins.5.30kb, 0, 100000, 5000, "chr5")
+tab_df.6.30kb <- full.chrom.tabulator(pos_df.6, bins.6.30kb, 0, 100000, 5000, "chr6")
+tab_df.7.30kb <- full.chrom.tabulator(pos_df.7, bins.7.30kb, 0, 100000, 5000, "chr7")
+tab_df.8.30kb <- full.chrom.tabulator(pos_df.8, bins.8.30kb, 0, 100000, 5000, "chr8")
+tab_df.9.30kb <- full.chrom.tabulator(pos_df.9, bins.9.30kb, 0, 100000, 5000, "chr9")
+tab_df.10.30kb <- full.chrom.tabulator(pos_df.10, bins.10.30kb, 0, 100000, 5000, "chr10")
+tab_df.11.30kb <- full.chrom.tabulator(pos_df.11, bins.11.30kb, 0, 100000, 5000, "chr11")
+tab_df.12.30kb <- full.chrom.tabulator(pos_df.12, bins.12.30kb, 0, 100000, 5000, "chr12")
+tab_df.13.30kb <- full.chrom.tabulator(pos_df.13, bins.13.30kb, 0, 100000, 5000, "chr13")
+tab_df.14.30kb <- full.chrom.tabulator(pos_df.14, bins.14.30kb, 0, 100000, 5000, "chr14")
+tab_df.15.30kb <- full.chrom.tabulator(pos_df.15, bins.15.30kb, 0, 100000, 5000, "chr15")
+tab_df.16.30kb <- full.chrom.tabulator(pos_df.16, bins.16.30kb, 0, 100000, 5000, "chr16")
+tab_df.17.30kb <- full.chrom.tabulator(pos_df.17, bins.17.30kb, 0, 100000, 5000, "chr17")
+tab_df.18.30kb <- full.chrom.tabulator(pos_df.18, bins.18.30kb, 0, 100000, 5000, "chr18")
+tab_df.19.30kb <- full.chrom.tabulator(pos_df.19, bins.19.30kb, 0, 100000, 5000, "chr19")
+tab_df.20.30kb <- full.chrom.tabulator(pos_df.20, bins.20.30kb, 0, 100000, 5000, "chr20")
+tab_df.21.30kb <- full.chrom.tabulator(pos_df.21, bins.21.30kb, 0, 100000, 5000, "chr21")
+tab_df.22.30kb <- full.chrom.tabulator(pos_df.22, bins.22.30kb, 0, 100000, 5000, "chr22")
+tab_df.X.30kb <- full.chrom.tabulator(pos_df.X, bins.X.30kb, 0, 100000, 5000, "chrX")
+tab_df.Y.30kb <- full.chrom.tabulator(pos_df.Y, bins.Y.30kb, 0, 100000, 5000, "chrY")
+
+
+tab_df.1.40kb <- full.chrom.tabulator(pos_df.1, bins.1.40kb, 0, 100000, 5000, "chr1")
+tab_df.2.40kb <- full.chrom.tabulator(pos_df.2, bins.2.40kb, 0, 100000, 5000, "chr2")
+tab_df.3.40kb <- full.chrom.tabulator(pos_df.3, bins.3.40kb, 0, 100000, 5000, "chr3")
+tab_df.4.40kb <- full.chrom.tabulator(pos_df.4, bins.4.40kb, 0, 100000, 5000, "chr4")
+tab_df.5.40kb <- full.chrom.tabulator(pos_df.5, bins.5.40kb, 0, 100000, 5000, "chr5")
+tab_df.6.40kb <- full.chrom.tabulator(pos_df.6, bins.6.40kb, 0, 100000, 5000, "chr6")
+tab_df.7.40kb <- full.chrom.tabulator(pos_df.7, bins.7.40kb, 0, 100000, 5000, "chr7")
+tab_df.8.40kb <- full.chrom.tabulator(pos_df.8, bins.8.40kb, 0, 100000, 5000, "chr8")
+tab_df.9.40kb <- full.chrom.tabulator(pos_df.9, bins.9.40kb, 0, 100000, 5000, "chr9")
+tab_df.10.40kb <- full.chrom.tabulator(pos_df.10, bins.10.40kb, 0, 100000, 5000, "chr10")
+tab_df.11.40kb <- full.chrom.tabulator(pos_df.11, bins.11.40kb, 0, 100000, 5000, "chr11")
+tab_df.12.40kb <- full.chrom.tabulator(pos_df.12, bins.12.40kb, 0, 100000, 5000, "chr12")
+tab_df.13.40kb <- full.chrom.tabulator(pos_df.13, bins.13.40kb, 0, 100000, 5000, "chr13")
+tab_df.14.40kb <- full.chrom.tabulator(pos_df.14, bins.14.40kb, 0, 100000, 5000, "chr14")
+tab_df.15.40kb <- full.chrom.tabulator(pos_df.15, bins.15.40kb, 0, 100000, 5000, "chr15")
+tab_df.16.40kb <- full.chrom.tabulator(pos_df.16, bins.16.40kb, 0, 100000, 5000, "chr16")
+tab_df.17.40kb <- full.chrom.tabulator(pos_df.17, bins.17.40kb, 0, 100000, 5000, "chr17")
+tab_df.18.40kb <- full.chrom.tabulator(pos_df.18, bins.18.40kb, 0, 100000, 5000, "chr18")
+tab_df.19.40kb <- full.chrom.tabulator(pos_df.19, bins.19.40kb, 0, 100000, 5000, "chr19")
+tab_df.20.40kb <- full.chrom.tabulator(pos_df.20, bins.20.40kb, 0, 100000, 5000, "chr20")
+tab_df.21.40kb <- full.chrom.tabulator(pos_df.21, bins.21.40kb, 0, 100000, 5000, "chr21")
+tab_df.22.40kb <- full.chrom.tabulator(pos_df.22, bins.22.40kb, 0, 100000, 5000, "chr22")
+tab_df.X.40kb <- full.chrom.tabulator(pos_df.X, bins.X.40kb, 0, 100000, 5000, "chrX")
+tab_df.Y.40kb <- full.chrom.tabulator(pos_df.Y, bins.Y.40kb, 0, 100000, 5000, "chrY")
+
+
+tab_df.1.50kb <- full.chrom.tabulator(pos_df.1, bins.1.50kb, 0, 200000, 10000, "chr1")
+tab_df.2.50kb <- full.chrom.tabulator(pos_df.2, bins.2.50kb, 0, 200000, 10000, "chr2")
+tab_df.3.50kb <- full.chrom.tabulator(pos_df.3, bins.3.50kb, 0, 200000, 10000, "chr3")
+tab_df.4.50kb <- full.chrom.tabulator(pos_df.4, bins.4.50kb, 0, 200000, 10000, "chr4")
+tab_df.5.50kb <- full.chrom.tabulator(pos_df.5, bins.5.50kb, 0, 200000, 10000, "chr5")
+tab_df.6.50kb <- full.chrom.tabulator(pos_df.6, bins.6.50kb, 0, 200000, 10000, "chr6")
+tab_df.7.50kb <- full.chrom.tabulator(pos_df.7, bins.7.50kb, 0, 200000, 10000, "chr7")
+tab_df.8.50kb <- full.chrom.tabulator(pos_df.8, bins.8.50kb, 0, 200000, 10000, "chr8")
+tab_df.9.50kb <- full.chrom.tabulator(pos_df.9, bins.9.50kb, 0, 200000, 10000, "chr9")
+tab_df.10.50kb <- full.chrom.tabulator(pos_df.10, bins.10.50kb, 0, 200000, 10000, "chr10")
+tab_df.11.50kb <- full.chrom.tabulator(pos_df.11, bins.11.50kb, 0, 200000, 10000, "chr11")
+tab_df.12.50kb <- full.chrom.tabulator(pos_df.12, bins.12.50kb, 0, 200000, 10000, "chr12")
+tab_df.13.50kb <- full.chrom.tabulator(pos_df.13, bins.13.50kb, 0, 200000, 10000, "chr13")
+tab_df.14.50kb <- full.chrom.tabulator(pos_df.14, bins.14.50kb, 0, 200000, 10000, "chr14")
+tab_df.15.50kb <- full.chrom.tabulator(pos_df.15, bins.15.50kb, 0, 200000, 10000, "chr15")
+tab_df.16.50kb <- full.chrom.tabulator(pos_df.16, bins.16.50kb, 0, 200000, 10000, "chr16")
+tab_df.17.50kb <- full.chrom.tabulator(pos_df.17, bins.17.50kb, 0, 200000, 10000, "chr17")
+tab_df.18.50kb <- full.chrom.tabulator(pos_df.18, bins.18.50kb, 0, 200000, 10000, "chr18")
+tab_df.19.50kb <- full.chrom.tabulator(pos_df.19, bins.19.50kb, 0, 200000, 10000, "chr19")
+tab_df.20.50kb <- full.chrom.tabulator(pos_df.20, bins.20.50kb, 0, 200000, 10000, "chr20")
+tab_df.21.50kb <- full.chrom.tabulator(pos_df.21, bins.21.50kb, 0, 200000, 10000, "chr21")
+tab_df.22.50kb <- full.chrom.tabulator(pos_df.22, bins.22.50kb, 0, 200000, 10000, "chr22")
+tab_df.X.50kb <- full.chrom.tabulator(pos_df.X, bins.X.50kb, 0, 200000, 10000, "chrX")
+tab_df.Y.50kb <- full.chrom.tabulator(pos_df.Y, bins.Y.50kb, 0, 200000, 10000, "chrY")
+
+
+tab_df.1.60kb <- full.chrom.tabulator(pos_df.1, bins.1.60kb, 0, 250000, 10000, "chr1")
+tab_df.2.60kb <- full.chrom.tabulator(pos_df.2, bins.2.60kb, 0, 250000, 10000, "chr2")
+tab_df.3.60kb <- full.chrom.tabulator(pos_df.3, bins.3.60kb, 0, 250000, 10000, "chr3")
+tab_df.4.60kb <- full.chrom.tabulator(pos_df.4, bins.4.60kb, 0, 250000, 10000, "chr4")
+tab_df.5.60kb <- full.chrom.tabulator(pos_df.5, bins.5.60kb, 0, 250000, 10000, "chr5")
+tab_df.6.60kb <- full.chrom.tabulator(pos_df.6, bins.6.60kb, 0, 250000, 10000, "chr6")
+tab_df.7.60kb <- full.chrom.tabulator(pos_df.7, bins.7.60kb, 0, 250000, 10000, "chr7")
+tab_df.8.60kb <- full.chrom.tabulator(pos_df.8, bins.8.60kb, 0, 250000, 10000, "chr8")
+tab_df.9.60kb <- full.chrom.tabulator(pos_df.9, bins.9.60kb, 0, 250000, 10000, "chr9")
+tab_df.10.60kb <- full.chrom.tabulator(pos_df.10, bins.10.60kb, 0, 250000, 10000, "chr10")
+tab_df.11.60kb <- full.chrom.tabulator(pos_df.11, bins.11.60kb, 0, 250000, 10000, "chr11")
+tab_df.12.60kb <- full.chrom.tabulator(pos_df.12, bins.12.60kb, 0, 250000, 10000, "chr12")
+tab_df.13.60kb <- full.chrom.tabulator(pos_df.13, bins.13.60kb, 0, 250000, 10000, "chr13")
+tab_df.14.60kb <- full.chrom.tabulator(pos_df.14, bins.14.60kb, 0, 250000, 10000, "chr14")
+tab_df.15.60kb <- full.chrom.tabulator(pos_df.15, bins.15.60kb, 0, 250000, 10000, "chr15")
+tab_df.16.60kb <- full.chrom.tabulator(pos_df.16, bins.16.60kb, 0, 250000, 10000, "chr16")
+tab_df.17.60kb <- full.chrom.tabulator(pos_df.17, bins.17.60kb, 0, 250000, 10000, "chr17")
+tab_df.18.60kb <- full.chrom.tabulator(pos_df.18, bins.18.60kb, 0, 250000, 10000, "chr18")
+tab_df.19.60kb <- full.chrom.tabulator(pos_df.19, bins.19.60kb, 0, 250000, 10000, "chr19")
+tab_df.20.60kb <- full.chrom.tabulator(pos_df.20, bins.20.60kb, 0, 250000, 10000, "chr20")
+tab_df.21.60kb <- full.chrom.tabulator(pos_df.21, bins.21.60kb, 0, 250000, 10000, "chr21")
+tab_df.22.60kb <- full.chrom.tabulator(pos_df.22, bins.22.60kb, 0, 250000, 10000, "chr22")
+tab_df.X.60kb <- full.chrom.tabulator(pos_df.X, bins.X.60kb, 0, 250000, 10000, "chrX")
+tab_df.Y.60kb <- full.chrom.tabulator(pos_df.Y, bins.Y.60kb, 0, 250000, 10000, "chrY")
+
+
+tab_df.1.70kb <- full.chrom.tabulator(pos_df.1, bins.1.70kb, 0, 300000, 10000, "chr1")
+tab_df.2.70kb <- full.chrom.tabulator(pos_df.2, bins.2.70kb, 0, 300000, 10000, "chr2")
+tab_df.3.70kb <- full.chrom.tabulator(pos_df.3, bins.3.70kb, 0, 300000, 10000, "chr3")
+tab_df.4.70kb <- full.chrom.tabulator(pos_df.4, bins.4.70kb, 0, 300000, 10000, "chr4")
+tab_df.5.70kb <- full.chrom.tabulator(pos_df.5, bins.5.70kb, 0, 300000, 10000, "chr5")
+tab_df.6.70kb <- full.chrom.tabulator(pos_df.6, bins.6.70kb, 0, 300000, 10000, "chr6")
+tab_df.7.70kb <- full.chrom.tabulator(pos_df.7, bins.7.70kb, 0, 300000, 10000, "chr7")
+tab_df.8.70kb <- full.chrom.tabulator(pos_df.8, bins.8.70kb, 0, 300000, 10000, "chr8")
+tab_df.9.70kb <- full.chrom.tabulator(pos_df.9, bins.9.70kb, 0, 300000, 10000, "chr9")
+tab_df.10.70kb <- full.chrom.tabulator(pos_df.10, bins.10.70kb, 0, 300000, 10000, "chr10")
+tab_df.11.70kb <- full.chrom.tabulator(pos_df.11, bins.11.70kb, 0, 300000, 10000, "chr11")
+tab_df.12.70kb <- full.chrom.tabulator(pos_df.12, bins.12.70kb, 0, 300000, 10000, "chr12")
+tab_df.13.70kb <- full.chrom.tabulator(pos_df.13, bins.13.70kb, 0, 300000, 10000, "chr13")
+tab_df.14.70kb <- full.chrom.tabulator(pos_df.14, bins.14.70kb, 0, 300000, 10000, "chr14")
+tab_df.15.70kb <- full.chrom.tabulator(pos_df.15, bins.15.70kb, 0, 300000, 10000, "chr15")
+tab_df.16.70kb <- full.chrom.tabulator(pos_df.16, bins.16.70kb, 0, 300000, 10000, "chr16")
+tab_df.17.70kb <- full.chrom.tabulator(pos_df.17, bins.17.70kb, 0, 300000, 10000, "chr17")
+tab_df.18.70kb <- full.chrom.tabulator(pos_df.18, bins.18.70kb, 0, 300000, 10000, "chr18")
+tab_df.19.70kb <- full.chrom.tabulator(pos_df.19, bins.19.70kb, 0, 300000, 10000, "chr19")
+tab_df.20.70kb <- full.chrom.tabulator(pos_df.20, bins.20.70kb, 0, 300000, 10000, "chr20")
+tab_df.21.70kb <- full.chrom.tabulator(pos_df.21, bins.21.70kb, 0, 300000, 10000, "chr21")
+tab_df.22.70kb <- full.chrom.tabulator(pos_df.22, bins.22.70kb, 0, 300000, 10000, "chr22")
+tab_df.X.70kb <- full.chrom.tabulator(pos_df.X, bins.X.70kb, 0, 300000, 10000, "chrX")
+tab_df.Y.70kb <- full.chrom.tabulator(pos_df.Y, bins.Y.70kb, 0, 300000, 10000, "chrY")
+
+
+tab_df.1.80kb <- full.chrom.tabulator(pos_df.1, bins.1.80kb, 0, 350000, 10000, "chr1")
+tab_df.2.80kb <- full.chrom.tabulator(pos_df.2, bins.2.80kb, 0, 350000, 10000, "chr2")
+tab_df.3.80kb <- full.chrom.tabulator(pos_df.3, bins.3.80kb, 0, 350000, 10000, "chr3")
+tab_df.4.80kb <- full.chrom.tabulator(pos_df.4, bins.4.80kb, 0, 350000, 10000, "chr4")
+tab_df.5.80kb <- full.chrom.tabulator(pos_df.5, bins.5.80kb, 0, 350000, 10000, "chr5")
+tab_df.6.80kb <- full.chrom.tabulator(pos_df.6, bins.6.80kb, 0, 350000, 10000, "chr6")
+tab_df.7.80kb <- full.chrom.tabulator(pos_df.7, bins.7.80kb, 0, 350000, 10000, "chr7")
+tab_df.8.80kb <- full.chrom.tabulator(pos_df.8, bins.8.80kb, 0, 350000, 10000, "chr8")
+tab_df.9.80kb <- full.chrom.tabulator(pos_df.9, bins.9.80kb, 0, 350000, 10000, "chr9")
+tab_df.10.80kb <- full.chrom.tabulator(pos_df.10, bins.10.80kb, 0, 350000, 10000, "chr10")
+tab_df.11.80kb <- full.chrom.tabulator(pos_df.11, bins.11.80kb, 0, 350000, 10000, "chr11")
+tab_df.12.80kb <- full.chrom.tabulator(pos_df.12, bins.12.80kb, 0, 350000, 10000, "chr12")
+tab_df.13.80kb <- full.chrom.tabulator(pos_df.13, bins.13.80kb, 0, 350000, 10000, "chr13")
+tab_df.14.80kb <- full.chrom.tabulator(pos_df.14, bins.14.80kb, 0, 350000, 10000, "chr14")
+tab_df.15.80kb <- full.chrom.tabulator(pos_df.15, bins.15.80kb, 0, 350000, 10000, "chr15")
+tab_df.16.80kb <- full.chrom.tabulator(pos_df.16, bins.16.80kb, 0, 350000, 10000, "chr16")
+tab_df.17.80kb <- full.chrom.tabulator(pos_df.17, bins.17.80kb, 0, 350000, 10000, "chr17")
+tab_df.18.80kb <- full.chrom.tabulator(pos_df.18, bins.18.80kb, 0, 350000, 10000, "chr18")
+tab_df.19.80kb <- full.chrom.tabulator(pos_df.19, bins.19.80kb, 0, 350000, 10000, "chr19")
+tab_df.20.80kb <- full.chrom.tabulator(pos_df.20, bins.20.80kb, 0, 350000, 10000, "chr20")
+tab_df.21.80kb <- full.chrom.tabulator(pos_df.21, bins.21.80kb, 0, 350000, 10000, "chr21")
+tab_df.22.80kb <- full.chrom.tabulator(pos_df.22, bins.22.80kb, 0, 350000, 10000, "chr22")
+tab_df.X.80kb <- full.chrom.tabulator(pos_df.X, bins.X.80kb, 0, 350000, 10000, "chrX")
+tab_df.Y.80kb <- full.chrom.tabulator(pos_df.Y, bins.Y.80kb, 0, 350000, 10000, "chrY")
+
+
+tab_df.1.90kb <- full.chrom.tabulator(pos_df.1, bins.1.90kb, 0, 400000, 10000, "chr1")
+tab_df.2.90kb <- full.chrom.tabulator(pos_df.2, bins.2.90kb, 0, 400000, 10000, "chr2")
+tab_df.3.90kb <- full.chrom.tabulator(pos_df.3, bins.3.90kb, 0, 400000, 10000, "chr3")
+tab_df.4.90kb <- full.chrom.tabulator(pos_df.4, bins.4.90kb, 0, 400000, 10000, "chr4")
+tab_df.5.90kb <- full.chrom.tabulator(pos_df.5, bins.5.90kb, 0, 400000, 10000, "chr5")
+tab_df.6.90kb <- full.chrom.tabulator(pos_df.6, bins.6.90kb, 0, 400000, 10000, "chr6")
+tab_df.7.90kb <- full.chrom.tabulator(pos_df.7, bins.7.90kb, 0, 400000, 10000, "chr7")
+tab_df.8.90kb <- full.chrom.tabulator(pos_df.8, bins.8.90kb, 0, 400000, 10000, "chr8")
+tab_df.9.90kb <- full.chrom.tabulator(pos_df.9, bins.9.90kb, 0, 400000, 10000, "chr9")
+tab_df.10.90kb <- full.chrom.tabulator(pos_df.10, bins.10.90kb, 0, 400000, 10000, "chr10")
+tab_df.11.90kb <- full.chrom.tabulator(pos_df.11, bins.11.90kb, 0, 400000, 10000, "chr11")
+tab_df.12.90kb <- full.chrom.tabulator(pos_df.12, bins.12.90kb, 0, 400000, 10000, "chr12")
+tab_df.13.90kb <- full.chrom.tabulator(pos_df.13, bins.13.90kb, 0, 400000, 10000, "chr13")
+tab_df.14.90kb <- full.chrom.tabulator(pos_df.14, bins.14.90kb, 0, 400000, 10000, "chr14")
+tab_df.15.90kb <- full.chrom.tabulator(pos_df.15, bins.15.90kb, 0, 400000, 10000, "chr15")
+tab_df.16.90kb <- full.chrom.tabulator(pos_df.16, bins.16.90kb, 0, 400000, 10000, "chr16")
+tab_df.17.90kb <- full.chrom.tabulator(pos_df.17, bins.17.90kb, 0, 400000, 10000, "chr17")
+tab_df.18.90kb <- full.chrom.tabulator(pos_df.18, bins.18.90kb, 0, 400000, 10000, "chr18")
+tab_df.19.90kb <- full.chrom.tabulator(pos_df.19, bins.19.90kb, 0, 400000, 10000, "chr19")
+tab_df.20.90kb <- full.chrom.tabulator(pos_df.20, bins.20.90kb, 0, 400000, 10000, "chr20")
+tab_df.21.90kb <- full.chrom.tabulator(pos_df.21, bins.21.90kb, 0, 400000, 10000, "chr21")
+tab_df.22.90kb <- full.chrom.tabulator(pos_df.22, bins.22.90kb, 0, 400000, 10000, "chr22")
+tab_df.X.90kb <- full.chrom.tabulator(pos_df.X, bins.X.90kb, 0, 400000, 10000, "chrX")
+tab_df.Y.90kb <- full.chrom.tabulator(pos_df.Y, bins.Y.90kb, 0, 400000, 10000, "chrY")
+
+
+tab_df.1.100kb <- full.chrom.tabulator(pos_df.1, bins.1.100kb, 0, 500000, 25000, "chr1")
+tab_df.2.100kb <- full.chrom.tabulator(pos_df.2, bins.2.100kb, 0, 500000, 25000, "chr2")
+tab_df.3.100kb <- full.chrom.tabulator(pos_df.3, bins.3.100kb, 0, 500000, 25000, "chr3")
+tab_df.4.100kb <- full.chrom.tabulator(pos_df.4, bins.4.100kb, 0, 500000, 25000, "chr4")
+tab_df.5.100kb <- full.chrom.tabulator(pos_df.5, bins.5.100kb, 0, 500000, 25000, "chr5")
+tab_df.6.100kb <- full.chrom.tabulator(pos_df.6, bins.6.100kb, 0, 500000, 25000, "chr6")
+tab_df.7.100kb <- full.chrom.tabulator(pos_df.7, bins.7.100kb, 0, 500000, 25000, "chr7")
+tab_df.8.100kb <- full.chrom.tabulator(pos_df.8, bins.8.100kb, 0, 500000, 25000, "chr8")
+tab_df.9.100kb <- full.chrom.tabulator(pos_df.9, bins.9.100kb, 0, 500000, 25000, "chr9")
+tab_df.10.100kb <- full.chrom.tabulator(pos_df.10, bins.10.100kb, 0, 500000, 25000, "chr10")
+tab_df.11.100kb <- full.chrom.tabulator(pos_df.11, bins.11.100kb, 0, 500000, 25000, "chr11")
+tab_df.12.100kb <- full.chrom.tabulator(pos_df.12, bins.12.100kb, 0, 500000, 25000, "chr12")
+tab_df.13.100kb <- full.chrom.tabulator(pos_df.13, bins.13.100kb, 0, 500000, 25000, "chr13")
+tab_df.14.100kb <- full.chrom.tabulator(pos_df.14, bins.14.100kb, 0, 500000, 25000, "chr14")
+tab_df.15.100kb <- full.chrom.tabulator(pos_df.15, bins.15.100kb, 0, 500000, 25000, "chr15")
+tab_df.16.100kb <- full.chrom.tabulator(pos_df.16, bins.16.100kb, 0, 500000, 25000, "chr16")
+tab_df.17.100kb <- full.chrom.tabulator(pos_df.17, bins.17.100kb, 0, 500000, 25000, "chr17")
+tab_df.18.100kb <- full.chrom.tabulator(pos_df.18, bins.18.100kb, 0, 500000, 25000, "chr18")
+tab_df.19.100kb <- full.chrom.tabulator(pos_df.19, bins.19.100kb, 0, 500000, 25000, "chr19")
+tab_df.20.100kb <- full.chrom.tabulator(pos_df.20, bins.20.100kb, 0, 500000, 25000, "chr20")
+tab_df.21.100kb <- full.chrom.tabulator(pos_df.21, bins.21.100kb, 0, 500000, 25000, "chr21")
+tab_df.22.100kb <- full.chrom.tabulator(pos_df.22, bins.22.100kb, 0, 500000, 25000, "chr22")
+tab_df.X.100kb <- full.chrom.tabulator(pos_df.X, bins.X.100kb, 0, 500000, 25000, "chrX")
+tab_df.Y.100kb <- full.chrom.tabulator(pos_df.Y, bins.Y.100kb, 0, 500000, 25000, "chrY")
+
+
+tab_df.1.125kb <- full.chrom.tabulator(pos_df.1, bins.1.125kb, 0, 600000, 25000, "chr1")
+tab_df.2.125kb <- full.chrom.tabulator(pos_df.2, bins.2.125kb, 0, 600000, 25000, "chr2")
+tab_df.3.125kb <- full.chrom.tabulator(pos_df.3, bins.3.125kb, 0, 600000, 25000, "chr3")
+tab_df.4.125kb <- full.chrom.tabulator(pos_df.4, bins.4.125kb, 0, 600000, 25000, "chr4")
+tab_df.5.125kb <- full.chrom.tabulator(pos_df.5, bins.5.125kb, 0, 600000, 25000, "chr5")
+tab_df.6.125kb <- full.chrom.tabulator(pos_df.6, bins.6.125kb, 0, 600000, 25000, "chr6")
+tab_df.7.125kb <- full.chrom.tabulator(pos_df.7, bins.7.125kb, 0, 600000, 25000, "chr7")
+tab_df.8.125kb <- full.chrom.tabulator(pos_df.8, bins.8.125kb, 0, 600000, 25000, "chr8")
+tab_df.9.125kb <- full.chrom.tabulator(pos_df.9, bins.9.125kb, 0, 600000, 25000, "chr9")
+tab_df.10.125kb <- full.chrom.tabulator(pos_df.10, bins.10.125kb, 0, 600000, 25000, "chr10")
+tab_df.11.125kb <- full.chrom.tabulator(pos_df.11, bins.11.125kb, 0, 600000, 25000, "chr11")
+tab_df.12.125kb <- full.chrom.tabulator(pos_df.12, bins.12.125kb, 0, 600000, 25000, "chr12")
+tab_df.13.125kb <- full.chrom.tabulator(pos_df.13, bins.13.125kb, 0, 600000, 25000, "chr13")
+tab_df.14.125kb <- full.chrom.tabulator(pos_df.14, bins.14.125kb, 0, 600000, 25000, "chr14")
+tab_df.15.125kb <- full.chrom.tabulator(pos_df.15, bins.15.125kb, 0, 600000, 25000, "chr15")
+tab_df.16.125kb <- full.chrom.tabulator(pos_df.16, bins.16.125kb, 0, 600000, 25000, "chr16")
+tab_df.17.125kb <- full.chrom.tabulator(pos_df.17, bins.17.125kb, 0, 600000, 25000, "chr17")
+tab_df.18.125kb <- full.chrom.tabulator(pos_df.18, bins.18.125kb, 0, 600000, 25000, "chr18")
+tab_df.19.125kb <- full.chrom.tabulator(pos_df.19, bins.19.125kb, 0, 600000, 25000, "chr19")
+tab_df.20.125kb <- full.chrom.tabulator(pos_df.20, bins.20.125kb, 0, 600000, 25000, "chr20")
+tab_df.21.125kb <- full.chrom.tabulator(pos_df.21, bins.21.125kb, 0, 600000, 25000, "chr21")
+tab_df.22.125kb <- full.chrom.tabulator(pos_df.22, bins.22.125kb, 0, 600000, 25000, "chr22")
+tab_df.X.125kb <- full.chrom.tabulator(pos_df.X, bins.X.125kb, 0, 600000, 25000, "chrX")
+tab_df.Y.125kb <- full.chrom.tabulator(pos_df.Y, bins.Y.125kb, 0, 600000, 25000, "chrY")
+
+
+tab_df.1.150kb <- full.chrom.tabulator(pos_df.1, bins.1.150kb, 0, 700000, 25000, "chr1")
+tab_df.2.150kb <- full.chrom.tabulator(pos_df.2, bins.2.150kb, 0, 700000, 25000, "chr2")
+tab_df.3.150kb <- full.chrom.tabulator(pos_df.3, bins.3.150kb, 0, 700000, 25000, "chr3")
+tab_df.4.150kb <- full.chrom.tabulator(pos_df.4, bins.4.150kb, 0, 700000, 25000, "chr4")
+tab_df.5.150kb <- full.chrom.tabulator(pos_df.5, bins.5.150kb, 0, 700000, 25000, "chr5")
+tab_df.6.150kb <- full.chrom.tabulator(pos_df.6, bins.6.150kb, 0, 700000, 25000, "chr6")
+tab_df.7.150kb <- full.chrom.tabulator(pos_df.7, bins.7.150kb, 0, 700000, 25000, "chr7")
+tab_df.8.150kb <- full.chrom.tabulator(pos_df.8, bins.8.150kb, 0, 700000, 25000, "chr8")
+tab_df.9.150kb <- full.chrom.tabulator(pos_df.9, bins.9.150kb, 0, 700000, 25000, "chr9")
+tab_df.10.150kb <- full.chrom.tabulator(pos_df.10, bins.10.150kb, 0, 700000, 25000, "chr10")
+tab_df.11.150kb <- full.chrom.tabulator(pos_df.11, bins.11.150kb, 0, 700000, 25000, "chr11")
+tab_df.12.150kb <- full.chrom.tabulator(pos_df.12, bins.12.150kb, 0, 700000, 25000, "chr12")
+tab_df.13.150kb <- full.chrom.tabulator(pos_df.13, bins.13.150kb, 0, 700000, 25000, "chr13")
+tab_df.14.150kb <- full.chrom.tabulator(pos_df.14, bins.14.150kb, 0, 700000, 25000, "chr14")
+tab_df.15.150kb <- full.chrom.tabulator(pos_df.15, bins.15.150kb, 0, 700000, 25000, "chr15")
+tab_df.16.150kb <- full.chrom.tabulator(pos_df.16, bins.16.150kb, 0, 700000, 25000, "chr16")
+tab_df.17.150kb <- full.chrom.tabulator(pos_df.17, bins.17.150kb, 0, 700000, 25000, "chr17")
+tab_df.18.150kb <- full.chrom.tabulator(pos_df.18, bins.18.150kb, 0, 700000, 25000, "chr18")
+tab_df.19.150kb <- full.chrom.tabulator(pos_df.19, bins.19.150kb, 0, 700000, 25000, "chr19")
+tab_df.20.150kb <- full.chrom.tabulator(pos_df.20, bins.20.150kb, 0, 700000, 25000, "chr20")
+tab_df.21.150kb <- full.chrom.tabulator(pos_df.21, bins.21.150kb, 0, 700000, 25000, "chr21")
+tab_df.22.150kb <- full.chrom.tabulator(pos_df.22, bins.22.150kb, 0, 700000, 25000, "chr22")
+tab_df.X.150kb <- full.chrom.tabulator(pos_df.X, bins.X.150kb, 0, 700000, 25000, "chrX")
+tab_df.Y.150kb <- full.chrom.tabulator(pos_df.Y, bins.Y.150kb, 0, 700000, 25000, "chrY")
+
+
+tab_df.1.200kb <- full.chrom.tabulator(pos_df.1, bins.1.200kb, 0, 1000000, 50000, "chr1")
+tab_df.2.200kb <- full.chrom.tabulator(pos_df.2, bins.2.200kb, 0, 1000000, 50000, "chr2")
+tab_df.3.200kb <- full.chrom.tabulator(pos_df.3, bins.3.200kb, 0, 1000000, 50000, "chr3")
+tab_df.4.200kb <- full.chrom.tabulator(pos_df.4, bins.4.200kb, 0, 1000000, 50000, "chr4")
+tab_df.5.200kb <- full.chrom.tabulator(pos_df.5, bins.5.200kb, 0, 1000000, 50000, "chr5")
+tab_df.6.200kb <- full.chrom.tabulator(pos_df.6, bins.6.200kb, 0, 1000000, 50000, "chr6")
+tab_df.7.200kb <- full.chrom.tabulator(pos_df.7, bins.7.200kb, 0, 1000000, 50000, "chr7")
+tab_df.8.200kb <- full.chrom.tabulator(pos_df.8, bins.8.200kb, 0, 1000000, 50000, "chr8")
+tab_df.9.200kb <- full.chrom.tabulator(pos_df.9, bins.9.200kb, 0, 1000000, 50000, "chr9")
+tab_df.10.200kb <- full.chrom.tabulator(pos_df.10, bins.10.200kb, 0, 1000000, 50000, "chr10")
+tab_df.11.200kb <- full.chrom.tabulator(pos_df.11, bins.11.200kb, 0, 1000000, 50000, "chr11")
+tab_df.12.200kb <- full.chrom.tabulator(pos_df.12, bins.12.200kb, 0, 1000000, 50000, "chr12")
+tab_df.13.200kb <- full.chrom.tabulator(pos_df.13, bins.13.200kb, 0, 1000000, 50000, "chr13")
+tab_df.14.200kb <- full.chrom.tabulator(pos_df.14, bins.14.200kb, 0, 1000000, 50000, "chr14")
+tab_df.15.200kb <- full.chrom.tabulator(pos_df.15, bins.15.200kb, 0, 1000000, 50000, "chr15")
+tab_df.16.200kb <- full.chrom.tabulator(pos_df.16, bins.16.200kb, 0, 1000000, 50000, "chr16")
+tab_df.17.200kb <- full.chrom.tabulator(pos_df.17, bins.17.200kb, 0, 1000000, 50000, "chr17")
+tab_df.18.200kb <- full.chrom.tabulator(pos_df.18, bins.18.200kb, 0, 1000000, 50000, "chr18")
+tab_df.19.200kb <- full.chrom.tabulator(pos_df.19, bins.19.200kb, 0, 1000000, 50000, "chr19")
+tab_df.20.200kb <- full.chrom.tabulator(pos_df.20, bins.20.200kb, 0, 1000000, 50000, "chr20")
+tab_df.21.200kb <- full.chrom.tabulator(pos_df.21, bins.21.200kb, 0, 1000000, 50000, "chr21")
+tab_df.22.200kb <- full.chrom.tabulator(pos_df.22, bins.22.200kb, 0, 1000000, 50000, "chr22")
+tab_df.X.200kb <- full.chrom.tabulator(pos_df.X, bins.X.200kb, 0, 1000000, 50000, "chrX")
+tab_df.Y.200kb <- full.chrom.tabulator(pos_df.Y, bins.Y.200kb, 0, 1000000, 50000, "chrY")
+
+#Get the sig.thresh for .10kb for all the chromosomes.
+sig.thresh.1.10kb <- chrom.analyzer("chr1", tab_df.1.10kb, my.ps)
+sig.thresh.2.10kb <- chrom.analyzer("chr2", tab_df.2.10kb, my.ps)
+sig.thresh.3.10kb <- chrom.analyzer("chr3", tab_df.3.10kb, my.ps)
+sig.thresh.4.10kb <- chrom.analyzer("chr4", tab_df.4.10kb, my.ps)
+sig.thresh.5.10kb <- chrom.analyzer("chr5", tab_df.5.10kb, my.ps)
+sig.thresh.6.10kb <- chrom.analyzer("chr6", tab_df.6.10kb, my.ps)
+sig.thresh.7.10kb <- chrom.analyzer("chr7", tab_df.7.10kb, my.ps)
+sig.thresh.8.10kb <- chrom.analyzer("chr8", tab_df.8.10kb, my.ps)
+sig.thresh.9.10kb <- chrom.analyzer("chr9", tab_df.9.10kb, my.ps)
+sig.thresh.10.10kb <- chrom.analyzer("chr10", tab_df.10.10kb, my.ps)
+sig.thresh.11.10kb <- chrom.analyzer("chr11", tab_df.11.10kb, my.ps)
+sig.thresh.12.10kb <- chrom.analyzer("chr12", tab_df.12.10kb, my.ps)
+sig.thresh.13.10kb <- chrom.analyzer("chr13", tab_df.13.10kb, my.ps)
+sig.thresh.14.10kb <- chrom.analyzer("chr14", tab_df.14.10kb, my.ps)
+sig.thresh.15.10kb <- chrom.analyzer("chr15", tab_df.15.10kb, my.ps)
+sig.thresh.16.10kb <- chrom.analyzer("chr16", tab_df.16.10kb, my.ps)
+sig.thresh.17.10kb <- chrom.analyzer("chr17", tab_df.17.10kb, my.ps)
+sig.thresh.18.10kb <- chrom.analyzer("chr18", tab_df.18.10kb, my.ps)
+sig.thresh.19.10kb <- chrom.analyzer("chr19", tab_df.19.10kb, my.ps)
+sig.thresh.20.10kb <- chrom.analyzer("chr20", tab_df.20.10kb, my.ps)
+sig.thresh.21.10kb <- chrom.analyzer("chr21", tab_df.21.10kb, my.ps)
+sig.thresh.22.10kb <- chrom.analyzer("chr22", tab_df.22.10kb, my.ps)
+sig.thresh.X.10kb <- chrom.analyzer("chrX", tab_df.X.10kb, my.ps)
+sig.thresh.Y.10kb <- chrom.analyzer("chrY", tab_df.Y.10kb, my.ps)
+
+#Get the sig.thresh for .20kb for all the chromosomes.
+sig.thresh.1.20kb <- chrom.analyzer("chr1", tab_df.1.20kb, my.ps)
+sig.thresh.2.20kb <- chrom.analyzer("chr2", tab_df.2.20kb, my.ps)
+sig.thresh.3.20kb <- chrom.analyzer("chr3", tab_df.3.20kb, my.ps)
+sig.thresh.4.20kb <- chrom.analyzer("chr4", tab_df.4.20kb, my.ps)
+sig.thresh.5.20kb <- chrom.analyzer("chr5", tab_df.5.20kb, my.ps)
+sig.thresh.6.20kb <- chrom.analyzer("chr6", tab_df.6.20kb, my.ps)
+sig.thresh.7.20kb <- chrom.analyzer("chr7", tab_df.7.20kb, my.ps)
+sig.thresh.8.20kb <- chrom.analyzer("chr8", tab_df.8.20kb, my.ps)
+sig.thresh.9.20kb <- chrom.analyzer("chr9", tab_df.9.20kb, my.ps)
+sig.thresh.10.20kb <- chrom.analyzer("chr10", tab_df.10.20kb, my.ps)
+sig.thresh.11.20kb <- chrom.analyzer("chr11", tab_df.11.20kb, my.ps)
+sig.thresh.12.20kb <- chrom.analyzer("chr12", tab_df.12.20kb, my.ps)
+sig.thresh.13.20kb <- chrom.analyzer("chr13", tab_df.13.20kb, my.ps)
+sig.thresh.14.20kb <- chrom.analyzer("chr14", tab_df.14.20kb, my.ps)
+sig.thresh.15.20kb <- chrom.analyzer("chr15", tab_df.15.20kb, my.ps)
+sig.thresh.16.20kb <- chrom.analyzer("chr16", tab_df.16.20kb, my.ps)
+sig.thresh.17.20kb <- chrom.analyzer("chr17", tab_df.17.20kb, my.ps)
+sig.thresh.18.20kb <- chrom.analyzer("chr18", tab_df.18.20kb, my.ps)
+sig.thresh.19.20kb <- chrom.analyzer("chr19", tab_df.19.20kb, my.ps)
+sig.thresh.20.20kb <- chrom.analyzer("chr20", tab_df.20.20kb, my.ps)
+sig.thresh.21.20kb <- chrom.analyzer("chr21", tab_df.21.20kb, my.ps)
+sig.thresh.22.20kb <- chrom.analyzer("chr22", tab_df.22.20kb, my.ps)
+sig.thresh.X.20kb <- chrom.analyzer("chrX", tab_df.X.20kb, my.ps)
+sig.thresh.Y.20kb <- chrom.analyzer("chrY", tab_df.Y.20kb, my.ps)
+
+#Get the sig.thresh for .30kb for all the chromosomes.
+sig.thresh.1.30kb <- chrom.analyzer("chr1", tab_df.1.30kb, my.ps)
+sig.thresh.2.30kb <- chrom.analyzer("chr2", tab_df.2.30kb, my.ps)
+sig.thresh.3.30kb <- chrom.analyzer("chr3", tab_df.3.30kb, my.ps)
+sig.thresh.4.30kb <- chrom.analyzer("chr4", tab_df.4.30kb, my.ps)
+sig.thresh.5.30kb <- chrom.analyzer("chr5", tab_df.5.30kb, my.ps)
+sig.thresh.6.30kb <- chrom.analyzer("chr6", tab_df.6.30kb, my.ps)
+sig.thresh.7.30kb <- chrom.analyzer("chr7", tab_df.7.30kb, my.ps)
+sig.thresh.8.30kb <- chrom.analyzer("chr8", tab_df.8.30kb, my.ps)
+sig.thresh.9.30kb <- chrom.analyzer("chr9", tab_df.9.30kb, my.ps)
+sig.thresh.10.30kb <- chrom.analyzer("chr10", tab_df.10.30kb, my.ps)
+sig.thresh.11.30kb <- chrom.analyzer("chr11", tab_df.11.30kb, my.ps)
+sig.thresh.12.30kb <- chrom.analyzer("chr12", tab_df.12.30kb, my.ps)
+sig.thresh.13.30kb <- chrom.analyzer("chr13", tab_df.13.30kb, my.ps)
+sig.thresh.14.30kb <- chrom.analyzer("chr14", tab_df.14.30kb, my.ps)
+sig.thresh.15.30kb <- chrom.analyzer("chr15", tab_df.15.30kb, my.ps)
+sig.thresh.16.30kb <- chrom.analyzer("chr16", tab_df.16.30kb, my.ps)
+sig.thresh.17.30kb <- chrom.analyzer("chr17", tab_df.17.30kb, my.ps)
+sig.thresh.18.30kb <- chrom.analyzer("chr18", tab_df.18.30kb, my.ps)
+sig.thresh.19.30kb <- chrom.analyzer("chr19", tab_df.19.30kb, my.ps)
+sig.thresh.20.30kb <- chrom.analyzer("chr20", tab_df.20.30kb, my.ps)
+sig.thresh.21.30kb <- chrom.analyzer("chr21", tab_df.21.30kb, my.ps)
+sig.thresh.22.30kb <- chrom.analyzer("chr22", tab_df.22.30kb, my.ps)
+sig.thresh.X.30kb <- chrom.analyzer("chrX", tab_df.X.30kb, my.ps)
+sig.thresh.Y.30kb <- chrom.analyzer("chrY", tab_df.Y.30kb, my.ps)
+
+#Get the sig.thresh for .40kb for all the chromosomes.
+sig.thresh.1.40kb <- chrom.analyzer("chr1", tab_df.1.40kb, my.ps)
+sig.thresh.2.40kb <- chrom.analyzer("chr2", tab_df.2.40kb, my.ps)
+sig.thresh.3.40kb <- chrom.analyzer("chr3", tab_df.3.40kb, my.ps)
+sig.thresh.4.40kb <- chrom.analyzer("chr4", tab_df.4.40kb, my.ps)
+sig.thresh.5.40kb <- chrom.analyzer("chr5", tab_df.5.40kb, my.ps)
+sig.thresh.6.40kb <- chrom.analyzer("chr6", tab_df.6.40kb, my.ps)
+sig.thresh.7.40kb <- chrom.analyzer("chr7", tab_df.7.40kb, my.ps)
+sig.thresh.8.40kb <- chrom.analyzer("chr8", tab_df.8.40kb, my.ps)
+sig.thresh.9.40kb <- chrom.analyzer("chr9", tab_df.9.40kb, my.ps)
+sig.thresh.10.40kb <- chrom.analyzer("chr10", tab_df.10.40kb, my.ps)
+sig.thresh.11.40kb <- chrom.analyzer("chr11", tab_df.11.40kb, my.ps)
+sig.thresh.12.40kb <- chrom.analyzer("chr12", tab_df.12.40kb, my.ps)
+sig.thresh.13.40kb <- chrom.analyzer("chr13", tab_df.13.40kb, my.ps)
+sig.thresh.14.40kb <- chrom.analyzer("chr14", tab_df.14.40kb, my.ps)
+sig.thresh.15.40kb <- chrom.analyzer("chr15", tab_df.15.40kb, my.ps)
+sig.thresh.16.40kb <- chrom.analyzer("chr16", tab_df.16.40kb, my.ps)
+sig.thresh.17.40kb <- chrom.analyzer("chr17", tab_df.17.40kb, my.ps)
+sig.thresh.18.40kb <- chrom.analyzer("chr18", tab_df.18.40kb, my.ps)
+sig.thresh.19.40kb <- chrom.analyzer("chr19", tab_df.19.40kb, my.ps)
+sig.thresh.20.40kb <- chrom.analyzer("chr20", tab_df.20.40kb, my.ps)
+sig.thresh.21.40kb <- chrom.analyzer("chr21", tab_df.21.40kb, my.ps)
+sig.thresh.22.40kb <- chrom.analyzer("chr22", tab_df.22.40kb, my.ps)
+sig.thresh.X.40kb <- chrom.analyzer("chrX", tab_df.X.40kb, my.ps)
+sig.thresh.Y.40kb <- chrom.analyzer("chrY", tab_df.Y.40kb, my.ps)
+```
+
+```{r Garbage/backup}
+chrom.analyzer <- function(chromosome, df, percents){
+  
+  #chr.df <- filter(df, chr==chromosome) #Filter out to get the chromosome of interest
+  #ggplot(chr.df, aes(x=bin, y=count)) + geom_boxplot(aes(group=bin)) #For actually visualizing the boxplots
+  
+  bins <- unique(df$bin) #Grab the bins
+  percents <- percents*.01 #Re-scale the percents to work with quantile in the loop below.
+  
+  values.df <- data.frame(matrix(nrow=length(bins), ncol=length(percents))) #Initialize the df to be returned
+  colnames(values.df) <- percents #Initialize the df's colnames for iterating through
+  rownames(values.df) <- bins #Initialize the df's rownames for iterating through
+  
+  for(bin in bins){
+    for(percent in percents){
+      values.df[as.character(bin), as.character(percent)] <- quantile(df$count[df$bin==bin], 1-percent)[[1]]#To pull out the value above which are the top percent % of loci
+    }
+  }
+  return(values.df)
+}
+```
+
+
+
+
 

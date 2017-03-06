@@ -176,6 +176,8 @@ pos_df.21 <- read.delim("just21", header=FALSE, stringsAsFactors = FALSE)
 pos_df.22 <- read.delim("just22", header=FALSE, stringsAsFactors = FALSE)
 pos_df.X <- read.delim("justX", header=FALSE, stringsAsFactors = FALSE)
 pos_df.Y <- read.delim("justY", header=FALSE, stringsAsFactors = FALSE)
+
+fread("just22", header=FALSE, stringsAsFactors = F)
 ```
 
 
