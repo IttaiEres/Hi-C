@@ -41,8 +41,6 @@ bins.vec.22 <- unique(sort(c(bins.22$start, bins.22$end)))
 
 # To check that the bins in the tabulation all make sense--they do!
 unique(substr(levels(tab.22$pos1_bin), 15, 18))
-
-my.ps <- c(5, 2.5, 1, 0.5, 0.1)
 ```
 
 ```{r Overlap of significance with Homer}
@@ -50,29 +48,89 @@ setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/homer.signif/sig_10kb")
 homer.10kb.chr22 <- fread("chr22_10kb_siglocs.txt", header=TRUE, stringsAsFactors = FALSE)
 head(homer.10kb.chr22)
 colnames(homer.10kb.chr22) <- c("start1", "end1", "start2", "end2")
+start1_new <- ifelse(homer.10kb.chr22$start1<homer.10kb.chr22$start2, homer.10kb.chr22$start1, homer.10kb.chr22$start2) #reorders columns so pos1 < pos2. important for not repeating bin pairs
+start2_new <- ifelse(homer.10kb.chr22$start1<homer.10kb.chr22$start2, homer.10kb.chr22$start2, homer.10kb.chr22$start1) #If true, returns second arg; if false, returns third.
+end1_new <-ifelse(homer.10kb.chr22$start1<homer.10kb.chr22$start2, homer.10kb.chr22$end1, homer.10kb.chr22$end2)
+end2_new <- ifelse(homer.10kb.chr22$start1<homer.10kb.chr22$start2, homer.10kb.chr22$end2, homer.10kb.chr22$end1)
+  
+#Assign the new columns.
+homer.10kb.chr22$start1 <- start1_new
+homer.10kb.chr22$start2 <- start2_new
+homer.10kb.chr22$end1 <- end1_new
+homer.10kb.chr22$end2 <- end2_new
+
+
 homer.10kb.chr22$loc1 <- rowMeans(homer.10kb.chr22[,1:2])
 homer.10kb.chr22$loc2 <- rowMeans(homer.10kb.chr22[,3:4])
+homer.10kb.chr22$distance <- abs(homer.10kb.chr22$loc1-homer.10kb.chr22$loc2)
+homer.10kb.chr22 <- homer.10kb.chr22 %>% mutate(loc1_bin=cut2(loc1, bins.vec.22, onlycuts=TRUE, oneval=FALSE, digits=9)) %>% mutate(loc2_bin=cut2(loc2, bins.vec.22, onlycuts=TRUE, oneval=FALSE, digits=9))
+
+
+homer.10kb.chr22 <- homer.10kb.chr22[,-1:-6] #Finally have what we're looking for
+
+#Now, subset down to just the relevant dataframes (with pairs at the distance desired) to check for overlap.
+homer.10kb.sigs <- homer.10kb.chr22[homer.10kb.chr22$distance<15000&homer.10kb.chr22$distance>=10000,2:3]
+
+my.10kb.sigs <- data.22[data.22$bin==10000&data.22$count>=sig.22["10000", "0.05"], 3:4]
+colnames(my.10kb.sigs) <- c("loc1_bin", "loc2_bin")
+
+test <- merge(homer.10kb.sigs, my.10kb.sigs) #YES! Works well :)
 
 homer.10kb.chr22.bins1 <- as.factor(paste("[", homer.10kb.chr22$'start(1)', ",", homer.10kb.chr22$'end(1)', ")", sep=""))
 
 #Function that takes a file of significant hits in homer, a file of coverage from data, and a positions file from data, finding the overlap of significant hits between homer and my method.
-signif.comparison <- function(homer.file, coverage.file, pos.file, chr){
+signif.comparison <- function(coverage.file, homer.file, chr, start=0, end=50000, by=5000, percents=c(5, 2.5, 1, 0.5, 0.1)){
+  
+  #Read in the coverage.file, rename its columns, and subset down to the specific chromosome of interest!
+  setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/cis_only/cis_only_coverage")
+  full_coverage <- fread("coverage_10kb_5kb.bed", sep="\t", header=F, stringsAsFactors = FALSE)
+  colnames(full_coverage) <- c("chr", "start", "end", "count")
+  coverage.df <- full_coverage[full_coverage$chr==chr,]
+  
+  #Find the optimum bins for this chromosome at this "locus bin" size.
+  chr.bins <- optimize.bin.sums(coverage.df)
+  chr.bins <- unique(sort(c(bins$start, bins$end)))
+
+  #Read in the pos.file 
+  setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/cis_only/paired_read_midpoint_positions")
+  pos.df <- fread(paste("midpoint.pairs.", substr(chr, 4, nchar(chr)), sep=""), header=FALSE, stringsAsFactors = FALSE)
+  
+  #Get long-form dataframe of all the data I could possibly want. Dictated by distance bins defined by start, end, and by.
+  full_info <- full.chrom.tabulator(coverage.df, pos.df, start, end, by)
+  
+  #Get a data frame of the values above which we would consider hits "significant" in the different distance bins.
+  sig.values <- sig.thresh.finder(full_info, percents)
   
   #Read in homer file, change column names to work with next lines
   homer.sig <- fread(homer.file, header=TRUE, stringsAsFactors = FALSE)
   colnames(homer.sig) <- c("start1", "end1", "start2", "end2")
   
   #Reformat the homer file to be easier to work with for matching hereafter.
-  start1_new <- ifelse(homer.sig$start.1.<homer.sig$start.2., homer.sig$start.1., homer.sig$start.2.) #reorders columns so pos1 < pos2. important for not repeating bin pairs
-  start2_new <- ifelse(homer.sig$start.1.<homer.sig$start.2., homer.sig$start.2., homer.sig$start.1.) #If true, returns second arg; if false, returns third.
-  end1_new <-ifelse(homer.sig$start.1.<homer.sig$start.2., homer.sig$end.1., homer.sig$end.2.)
-  end2_new <- ifelse(homer.sig$start.1.<homer.sig$start.2., homer.sig$end.2., homer.sig$end.1.)
+  start1_new <- ifelse(homer.sig$start1<homer.sig$start2, homer.sig$start1, homer.sig$start2) #reorders columns so pos1 < pos2. important for not repeating bin pairs
+  start2_new <- ifelse(homer.sig$start1<homer.sig$start2, homer.sig$start2, homer.sig$start1) #If true, returns second arg; if false, returns third.
+  end1_new <-ifelse(homer.sig$start1<homer.sig$start2, homer.sig$end1, homer.sig$end2)
+  end2_new <- ifelse(homer.sig$start1<homer.sig$start2, homer.sig$end2, homer.sig$end1)
   
   #Assign the new columns.
-  homer.sig$start.1. <- start1_new
-  homer.sig$start.2. <- start2_new
-  homer.sig$end.1. <- end1_new
-  homer.sig$end.2. <- end2_new
+  homer.sig$start1 <- start1_new
+  homer.sig$start2 <- start2_new
+  homer.sig$end1 <- end1_new
+  homer.sig$end2 <- end2_new
+  
+  #Get individual locations as midpoints of loci identified as significant by homer, so I can assign them to my set of bins for the given chr.
+  homer.sig$loc1 <- rowMeans(homer.sig[,1:2]) #Get midpoint of start1 and end1, for loc1
+  homer.sig$loc2 <- rowMeans(homer.sig[,3:4]) #Same for loc2 (start2 and end2)
+  
+  #Get another column that is distance between the two loci, for subsetting down later on.
+  homer.sig$distance <- abs(homer.sig$loc1-homer.sig$loc2)
+  
+  #Assign the individual locations of homer-significant loci to my set of bins for the given chr.
+  homer.sig <- homer.sig %>% mutate(loc1_bin=cut2(loc1, chr.bins, onlycuts=TRUE, oneval=FALSE, digits=9)) %>% mutate(loc2_bin=cut2(loc2, chr.bins, onlycuts=TRUE, oneval=FALSE, digits=9))
+  
+  #Subset down to just the pairs of significant hits bins from the homer data.
+  homer.sig <- homer.sig[,-1:-6] #Gets rid of columns 1-6, column 7 with distance between loci and columns 8 and 9 with position bin assignations are all that matter.
+  
+  
   
   #Make a properly formatted DF of my significant hits.
   tab_df <- tab_df[tab_df$count>=sig_thresh&tab_df$bin==bin,] #Pull out only values above the significance threshold in the right bin.
@@ -192,7 +250,7 @@ chrom.visualizer <- function(full_tab_df){
 }
 
 #Function to obtain the values that represent the contact count # threshold for the top 'percents' of each distribution.
-sig.thresh.finder <- function(chromosome, full_tab_df, percents){
+sig.thresh.finder <- function(full_tab_df, percents){
   
   bins <- unique(full_tab_df$bin) #Grab the bins
   percents <- percents*.01 #Re-scale the percents to work with quantile in the loop below.
