@@ -18,7 +18,7 @@ library(dplyr)
 library(Hmisc)
 
 ## Read in the full coverage data for 10 kb.
-setwd("/Users/ittaieres/Desktop/Hi-C/Bedtools_Analyze")
+setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/cis_only/cis_only_coverage")
 full_coverage <- fread("coverage_10kb_5kb.bed", sep="\t", header=F, stringsAsFactors = FALSE)
 colnames(full_coverage) <- c("chr", "start", "end", "count")
 
@@ -26,61 +26,41 @@ colnames(full_coverage) <- c("chr", "start", "end", "count")
 genome <- c("chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20", "chr21", "chr22", "chrX", "chrY")
 ```
 
-```{r Sanity checking to make sure everything makes sense!}
-coverage.22 <- full_coverage[full_coverage$chr=="chr22",]
+```{r Sanity checking to make sure everything makes sense! Go through everything with chr 22 just to ensure}
+coverage.22 <- full_coverage[full_coverage$chr=="chr22",] #Get coverage df for chr22.
+setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/cis_only/paired_read_midpoint_positions")
+pos.22 <- fread("midpoint.pairs.22", header=FALSE, stringsAsFactors = FALSE) #Get pos df for chr22.
+tab.22 <- basic_tabulation(coverage.22, pos.22, 0, 35000000) #Tabulate all contact counts for chr22, just to check!
+data.22 <- full.chrom.tabulator(coverage.22, pos.22, 0, 50000, 5000)
 
 
-```
+sig.22 <- sig.thresh.finder("chr22", data.22, my.ps)
 
+bins.22 <- optimize.bin.sums(coverage.22)
+bins.vec.22 <- unique(sort(c(bins.22$start, bins.22$end)))
 
-
-```{r Significance threshold calculation}
-#Function to create boxplots from individual chromosomes' contact counts by reading in from a long-form data frame containing all info. Also returns a data frame specifying the values that represent the threshold for the top 'percents' of each distribution.
-chrom.analyzer <- function(chromosome, tab_df, percents){
-  
-  bins <- unique(tab_df$bin) #Grab the bins
-  percents <- percents*.01 #Re-scale the percents to work with quantile in the loop below.
-  
-  values.df <- data.frame(matrix(nrow=length(bins), ncol=length(percents))) #Initialize the df to be returned
-  colnames(values.df) <- percents #Initialize the df's colnames for iterating through
-  rownames(values.df) <- bins #Initialize the df's rownames for iterating through
-  
-  #Remove rows that are duplicate bins with each other!
-  characters <- (unique(nchar(as.character(tab_df$loc1)))-3)/2
-  start1 <- as.numeric(substr(as.character(tab_df$loc1), 2, characters+1))
-  start2 <- as.numeric(substr(as.character(tab_df$loc2), 2, characters+1))
-  tab_df <- tab_df[-which(start1==start2),]
-  
-  for(bin in bins){
-    for(percent in percents){
-      values.df[as.character(bin), as.character(percent)] <- quantile(tab_df$count[tab_df$bin==bin], 1-percent)[[1]]#To pull out the value above which are the top percent % of loci
-    }
-  }
-  return(values.df)
-}
-
-chrom.visualizer <- function(tab_df){
-  
-  #chr.df <- filter(df, chr==chromosome) #Filter out to get the chromosome of interest
-  #ggplot(chr.df, aes(x=bin, y=count)) + geom_boxplot(aes(group=bin)) #For actually visualizing the boxplots
-  
-}
+# To check that the bins in the tabulation all make sense--they do!
+unique(substr(levels(tab.22$pos1_bin), 15, 18))
 
 my.ps <- c(5, 2.5, 1, 0.5, 0.1)
-test <- chrom.analyzer("chr22", tab_df.22.10kb, my.ps)
-
 ```
 
 ```{r Overlap of significance with Homer}
-setwd("/Users/ittaieres/Desktop/Hi-C/Hi-C Basic Analyze/homer.signif/sig_10kb")
-homer.10kb.chr1 <- read.delim("chr1_10kb_siglocs.txt", header=TRUE, stringsAsFactors = FALSE)
-head(homer.10kb.chr1)
-homer.10kb.chr1.bins1 <- as.factor(paste("[", homer.10kb.chr1$start.1, ",", homer.10kb.chr1$end.1, ")", sep=""))
+setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/homer.signif/sig_10kb")
+homer.10kb.chr22 <- fread("chr22_10kb_siglocs.txt", header=TRUE, stringsAsFactors = FALSE)
+head(homer.10kb.chr22)
+colnames(homer.10kb.chr22) <- c("start1", "end1", "start2", "end2")
+homer.10kb.chr22$loc1 <- rowMeans(homer.10kb.chr22[,1:2])
+homer.10kb.chr22$loc2 <- rowMeans(homer.10kb.chr22[,3:4])
 
-signif.comparison <- function(homer.file, tab_df, bin, sig_thresh){
+homer.10kb.chr22.bins1 <- as.factor(paste("[", homer.10kb.chr22$'start(1)', ",", homer.10kb.chr22$'end(1)', ")", sep=""))
+
+#Function that takes a file of significant hits in homer, a file of coverage from data, and a positions file from data, finding the overlap of significant hits between homer and my method.
+signif.comparison <- function(homer.file, coverage.file, pos.file, chr){
   
-  #Read in homer file.
-  homer.sig <- read.delim(homer.file, header=TRUE, stringsAsFactors = FALSE)
+  #Read in homer file, change column names to work with next lines
+  homer.sig <- fread(homer.file, header=TRUE, stringsAsFactors = FALSE)
+  colnames(homer.sig) <- c("start1", "end1", "start2", "end2")
   
   #Reformat the homer file to be easier to work with for matching hereafter.
   start1_new <- ifelse(homer.sig$start.1.<homer.sig$start.2., homer.sig$start.1., homer.sig$start.2.) #reorders columns so pos1 < pos2. important for not repeating bin pairs
@@ -114,7 +94,7 @@ test <- signif.comparison("chr1_10kb_siglocs.txt", tab_df.1.10kb, 30000, 77)
 ```
 
 
-```{r Functions used in call of main function: bin sum optimization, contact frequency tabulation, }
+```{r Functions used in call of main function: bin sum optimization, contact frequency tabulation, full chromosome contact tabulator, full chromosome visualizer, significance threshold finder, }
 #Simple function that finds the sets of bins in each block of reads that will yield the greatest sum of reads, regardless of read inclusion.
 optimize.bin.sums <- function(coverage_df){
   
@@ -158,7 +138,7 @@ optimize.bin.sums <- function(coverage_df){
 }
 
 #A function that tabulates the frequency of contact between different bins on a position dataframe.
-basic_tabulation <- function(pos_df, distance1, distance2, bins.df){
+basic_tabulation <- function(coverage_df, pos_df, distance1, distance2){
   colnames(pos_df) <- c("pos1", "pos2") #ensure the column names of the pos_df work with the next lines
   
   pos1_new <- ifelse(pos_df$pos1<pos_df$pos2, pos_df$pos1, pos_df$pos2) #reorders columns so pos1 < pos2. important for not repeating bin pairs
@@ -170,39 +150,69 @@ basic_tabulation <- function(pos_df, distance1, distance2, bins.df){
   pos_df <- pos_df[pos_df$diff<(distance2)&pos_df$diff>=(distance1),1:2] #pull out pairs in the given distance range
   
   if(nrow(pos_df)>0){#If we've found pairs at the given distance, tabulate contact counts!
-  bins.vec <- unique(sort(c(bins.df$pos1, bins.df$pos2))) #Pulls out the vector of bins for the given chromosome at given bin size.
+    
+    bins.df <- optimize.bin.sums(coverage_df)
+    bins.vec <- unique(sort(c(bins.df$start, bins.df$end))) #Pulls out the vector of bins for the given chromosome at given bin size.
   
-  pos_df <- pos_df %>% mutate(pos1_bin = cut2(pos1, bins.vec, onlycuts=TRUE, oneval=FALSE, digits=9)) %>% mutate(pos2_bin = cut2(pos2, bins.vec, onlycuts=TRUE, oneval=FALSE, digits=9)) #make two new columns in the pos_df, with bin assignments for pos1 and pos2
-  pos_df %>% group_by(pos1_bin, pos2_bin) %>% summarise(count=n()) #tabulate the bin contacts that are repeated to find total bin-bin contacts
+    pos_df <- pos_df %>% mutate(pos1_bin = cut2(pos1, bins.vec, onlycuts=TRUE, oneval=FALSE, digits=9)) %>% mutate(pos2_bin = cut2(pos2, bins.vec, onlycuts=TRUE, oneval=FALSE, digits=9)) #make two new columns in the pos_df, with bin assignments for pos1 and pos2
+    pos_df %>% group_by(pos1_bin, pos2_bin) %>% summarise(count=n()) #tabulate the bin contacts that are repeated to find total bin-bin contacts
   }
   else(return(0))#print("No contacts at that distance on this chromosome!"))
 }
 
-test2 <- basic_tabulation(pos_df.1, 30000, 35000, bins.1.10kb)
-
-#Creates a list of data frames of tabulation for an individual chromosome at a variety of different distance bins (specified by user). 
-indiv.chrom.tabulator <- function(pos_df, bins, start, end, by){
+#Creates a massive long-form dataframe containing information on count, mean, locus 1 and locus 2, and chromosome for each distance bin--called on individual chromosomes at a time.
+full.chrom.tabulator <- function(coverage_df, pos_df, start, end, by){
   distances <- seq(start, end, by) #Get the set of distances being looked at
-  tabulation.list <- vector("list", length(distances))
-  for(distance in 1:length(distances)){
-    if(is.null(nrow(basic_tabulation(pos_df, distances[distance], distances[distance]+by, bins)))){next}
-    tabulation.list[[distance]] <- basic_tabulation(pos_df, distances[distance], distances[distance]+by, bins)
-    }
-  names(tabulation.list) <- distances
-  return(tabulation.list)
+  tabulation.list <- vector("list", length(distances)) #Initialize a blank list of length distances to store dfs of contact count dist'ns for different distance bins in.
+  for(distance in 1:length(distances)){ #Iterate through all the user-input distances
+    if(is.null(nrow(basic_tabulation(coverage_df, pos_df, distances[distance], distances[distance]+by)))){next} #Check that there are contacts at that distance on this chromosome. If not, move on.
+    tmp.table <- basic_tabulation(coverage_df, pos_df, distances[distance], distances[distance]+by) #If contacts found, tabulate!
+    tabulation.list[[distance]] <- data.frame(chr=unique(coverage_df$chr),  bin=distances[distance], loc1=tmp.table$pos1_bin, loc2=tmp.table$pos2_bin, count=tmp.table$count) #Put a data frame with all the info about contacts at this distance into the list
+  }
+  tabulation.df <- do.call(rbind, tabulation.list) #Combine all the lists into a single long-form dataframe.
+  return(tabulation.df)
 }
 
-#Creates a massive long-form dataframe containing information on count, mean, locus 1 and locus 2, and chromosome for each distance bin--called on individual chromosomes at a time.
-full.chrom.tabulator <- function(pos_df, bins, start, end, by, chr){
-  distances <- seq(start, end, by) #Get the set of distances being looked at
-  tabulation.list <- vector("list", length(distances))
-  for(distance in 1:length(distances)){
-    if(is.null(nrow(basic_tabulation(pos_df, distances[distance], distances[distance]+by, bins)))){next}
-    tmp.table <- basic_tabulation(pos_df, distances[distance], distances[distance]+by, bins)
-    tabulation.list[[distance]] <- data.frame(chr=chr,  bin=distances[distance], loc1=tmp.table$pos1_bin, loc2=tmp.table$pos2_bin, count=tmp.table$count)
+chrom.visualizer <- function(full_tab_df){
+  
+  options(warn=-1) #Turn off warnings, not sure why they come up when running this but it doesn't matter.
+  
+  p <- ggplot(full_tab_df, aes(x=bin, y=count)) + geom_boxplot(aes(group=bin)) + ggtitle(paste("Distributions of Contact Counts for Pairs at Various Distances,", unique(full_tab_df$chr))) + ylab("Contact Count (Reads)") + xlab("Pair Distance Bins") #For actually visualizing boxplots of count distributions for different distance bins.
+  
+  print(p) #Show that set of boxplots!
+  
+  distances <- unique(full_tab_df$bin) #Grab all the distance bins.
+  spacing <- (distances[2]-distances[1])/1000 #Calculate the spacing between distance bins (for titles of histograms)
+  
+  for(bin in distances){ #Make and print individual histograms for each of the different distance bins!
+    print(qplot(full_tab_df[full_tab_df$bin==bin,5], data=full_tab_df[full_tab_df$bin==bin,], geom="histogram", binwidth=1, xlab="Contact Count (Reads)", ylab="Frequency", main=paste("Histogram of Contact Counts for Pairs", bin/1000, "to", (bin/1000)+spacing, "kb apart,", unique(full_tab_df$chr))))
+    
+    options(warn=0) #Turn warnings back on so as not to mess with anything else.
   }
-  tabulation.df <- do.call(rbind, tabulation.list)
-  return(tabulation.df)
+}
+
+#Function to obtain the values that represent the contact count # threshold for the top 'percents' of each distribution.
+sig.thresh.finder <- function(chromosome, full_tab_df, percents){
+  
+  bins <- unique(full_tab_df$bin) #Grab the bins
+  percents <- percents*.01 #Re-scale the percents to work with quantile in the loop below.
+  
+  values.df <- data.frame(matrix(nrow=length(bins), ncol=length(percents))) #Initialize the df to be returned
+  colnames(values.df) <- percents #Initialize the df's colnames for iterating through
+  rownames(values.df) <- bins #Initialize the df's rownames for iterating through
+  
+  #Remove rows that are duplicate bins with each other!
+  characters <- (unique(nchar(as.character(full_tab_df$loc1)))-3)/2
+  start1 <- as.numeric(substr(as.character(full_tab_df$loc1), 2, characters+1))
+  start2 <- as.numeric(substr(as.character(full_tab_df$loc2), 2, characters+1))
+  full_tab_df <- full_tab_df[-which(start1==start2),]
+  
+  for(bin in bins){
+    for(percent in percents){
+      values.df[as.character(bin), as.character(percent)] <- quantile(full_tab_df$count[full_tab_df$bin==bin], 1-percent)[[1]]#To pull out the value above which are the top percent % of loci
+    }
+  }
+  return(values.df)
 }
 ```
 
