@@ -337,3 +337,638 @@ test %>%
     ggplot(., aes(bin, ct))+
       geom_boxplot() #Gets some good stuff but it's still not in order
 ```
+
+```{r Old garbage}
+setwd("~/Desktop/Hi-C/Hi-C Basic Analyze")
+#Grab all the pos_dfs. Cut unix file of 2 paired end read columns, read pos1 and read pos2.
+pos_df.1 <- fread("just1", header=FALSE, stringsAsFactors = FALSE)
+pos_df.2 <- fread("just2", header=FALSE, stringsAsFactors = FALSE)
+pos_df.3 <- fread("just3", header=FALSE, stringsAsFactors = FALSE)
+pos_df.4 <- fread("just4", header=FALSE, stringsAsFactors = FALSE)
+pos_df.5 <- fread("just5", header=FALSE, stringsAsFactors = FALSE)
+pos_df.6 <- fread("just6", header=FALSE, stringsAsFactors = FALSE)
+pos_df.7 <- fread("just7", header=FALSE, stringsAsFactors = FALSE)
+pos_df.8 <- fread("just8", header=FALSE, stringsAsFactors = FALSE)
+pos_df.9 <- fread("just9", header=FALSE, stringsAsFactors = FALSE)
+pos_df.10 <- fread("just10", header=FALSE, stringsAsFactors = FALSE)
+pos_df.11 <- fread("just11", header=FALSE, stringsAsFactors = FALSE)
+pos_df.12 <- fread("just12", header=FALSE, stringsAsFactors = FALSE)
+pos_df.13 <- fread("just13", header=FALSE, stringsAsFactors = FALSE)
+pos_df.14 <- fread("just14", header=FALSE, stringsAsFactors = FALSE)
+pos_df.15 <- fread("just15", header=FALSE, stringsAsFactors = FALSE)
+pos_df.16 <- fread("just16", header=FALSE, stringsAsFactors = FALSE)
+pos_df.17 <- fread("just17", header=FALSE, stringsAsFactors = FALSE)
+pos_df.18 <- fread("just18", header=FALSE, stringsAsFactors = FALSE)
+pos_df.19 <- fread("just19", header=FALSE, stringsAsFactors = FALSE)
+pos_df.20 <- fread("just20", header=FALSE, stringsAsFactors = FALSE)
+pos_df.21 <- fread("just21", header=FALSE, stringsAsFactors = FALSE)
+pos_df.22 <- fread("just22", header=FALSE, stringsAsFactors = FALSE)
+pos_df.X <- fread("justX", header=FALSE, stringsAsFactors = FALSE)
+pos_df.Y <- fread("justY", header=FALSE, stringsAsFactors = FALSE)
+
+#Get the bedtools-created coverage data frames in order to optimize bin sums.
+setwd("~/Desktop/Hi-C/Hi-C Basic Analyze/coverage/current")
+coverage.10kb <- read.delim("coverage_10kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.20kb <- read.delim("coverage_20kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.30kb <- read.delim("coverage_30kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.40kb <- read.delim("coverage_40kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.50kb <- read.delim("coverage_50kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.60kb <- read.delim("coverage_60kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.70kb <- read.delim("coverage_70kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.80kb <- read.delim("coverage_80kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.90kb <- read.delim("coverage_90kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.100kb <- read.delim("coverage_100kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.125kb <- read.delim("coverage_125kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.150kb <- read.delim("coverage_150kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+coverage.200kb <- read.delim("coverage_200kb_5kb.bed", header=FALSE, stringsAsFactors = FALSE)
+
+#Assign their column names.
+colnames(coverage.10kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.20kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.30kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.40kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.50kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.60kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.70kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.80kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.90kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.100kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.125kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.150kb) <- c("chr", "pos1", "pos2", "count")
+colnames(coverage.200kb) <- c("chr", "pos1", "pos2", "count")
+
+#Get the coverage for .10kb for all the chromosomes
+chr1.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr1"),]
+chr2.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr2"),]
+chr3.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr3"),]
+chr4.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr4"),]
+chr5.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr5"),]
+chr6.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr6"),]
+chr7.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr7"),]
+chr8.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr8"),]
+chr9.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr9"),]
+chr10.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr10"),]
+chr11.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr11"),]
+chr12.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr12"),]
+chr13.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr13"),]
+chr14.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr14"),]
+chr15.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr15"),]
+chr16.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr16"),]
+chr17.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr17"),]
+chr18.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr18"),]
+chr19.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr19"),]
+chr20.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr20"),]
+chr21.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr21"),]
+chr22.10kb <- coverage.10kb[which(coverage.10kb$chr=="chr22"),]
+chrX.10kb <- coverage.10kb[which(coverage.10kb$chr=="chrX"),]
+chrY.10kb <- coverage.10kb[which(coverage.10kb$chr=="chrY"),]
+
+#Get the coverage for .20kb for all the chromosomes
+chr1.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr1"),]
+chr2.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr2"),]
+chr3.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr3"),]
+chr4.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr4"),]
+chr5.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr5"),]
+chr6.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr6"),]
+chr7.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr7"),]
+chr8.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr8"),]
+chr9.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr9"),]
+chr10.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr10"),]
+chr11.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr11"),]
+chr12.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr12"),]
+chr13.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr13"),]
+chr14.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr14"),]
+chr15.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr15"),]
+chr16.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr16"),]
+chr17.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr17"),]
+chr18.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr18"),]
+chr19.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr19"),]
+chr20.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr20"),]
+chr21.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr21"),]
+chr22.20kb <- coverage.20kb[which(coverage.20kb$chr=="chr22"),]
+chrX.20kb <- coverage.20kb[which(coverage.20kb$chr=="chrX"),]
+chrY.20kb <- coverage.20kb[which(coverage.20kb$chr=="chrY"),]
+
+#Get the coverage for .30kb for all the chromosomes
+chr1.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr1"),]
+chr2.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr2"),]
+chr3.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr3"),]
+chr4.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr4"),]
+chr5.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr5"),]
+chr6.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr6"),]
+chr7.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr7"),]
+chr8.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr8"),]
+chr9.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr9"),]
+chr10.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr10"),]
+chr11.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr11"),]
+chr12.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr12"),]
+chr13.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr13"),]
+chr14.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr14"),]
+chr15.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr15"),]
+chr16.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr16"),]
+chr17.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr17"),]
+chr18.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr18"),]
+chr19.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr19"),]
+chr20.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr20"),]
+chr21.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr21"),]
+chr22.30kb <- coverage.30kb[which(coverage.30kb$chr=="chr22"),]
+chrX.30kb <- coverage.30kb[which(coverage.30kb$chr=="chrX"),]
+chrY.30kb <- coverage.30kb[which(coverage.30kb$chr=="chrY"),]
+
+#Get the coverage for .40kb for all the chromosomes
+chr1.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr1"),]
+chr2.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr2"),]
+chr3.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr3"),]
+chr4.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr4"),]
+chr5.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr5"),]
+chr6.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr6"),]
+chr7.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr7"),]
+chr8.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr8"),]
+chr9.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr9"),]
+chr10.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr10"),]
+chr11.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr11"),]
+chr12.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr12"),]
+chr13.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr13"),]
+chr14.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr14"),]
+chr15.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr15"),]
+chr16.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr16"),]
+chr17.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr17"),]
+chr18.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr18"),]
+chr19.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr19"),]
+chr20.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr20"),]
+chr21.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr21"),]
+chr22.40kb <- coverage.40kb[which(coverage.40kb$chr=="chr22"),]
+chrX.40kb <- coverage.40kb[which(coverage.40kb$chr=="chrX"),]
+chrY.40kb <- coverage.40kb[which(coverage.40kb$chr=="chrY"),]
+
+#Get the coverage for .50kb for all the chromosomes
+chr1.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr1"),]
+chr2.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr2"),]
+chr3.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr3"),]
+chr4.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr4"),]
+chr5.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr5"),]
+chr6.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr6"),]
+chr7.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr7"),]
+chr8.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr8"),]
+chr9.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr9"),]
+chr10.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr10"),]
+chr11.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr11"),]
+chr12.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr12"),]
+chr13.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr13"),]
+chr14.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr14"),]
+chr15.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr15"),]
+chr16.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr16"),]
+chr17.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr17"),]
+chr18.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr18"),]
+chr19.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr19"),]
+chr20.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr20"),]
+chr21.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr21"),]
+chr22.50kb <- coverage.50kb[which(coverage.50kb$chr=="chr22"),]
+chrX.50kb <- coverage.50kb[which(coverage.50kb$chr=="chrX"),]
+chrY.50kb <- coverage.50kb[which(coverage.50kb$chr=="chrY"),]
+
+#Get the coverage for .60kb for all the chromosomes
+chr1.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr1"),]
+chr2.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr2"),]
+chr3.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr3"),]
+chr4.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr4"),]
+chr5.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr5"),]
+chr6.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr6"),]
+chr7.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr7"),]
+chr8.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr8"),]
+chr9.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr9"),]
+chr10.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr10"),]
+chr11.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr11"),]
+chr12.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr12"),]
+chr13.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr13"),]
+chr14.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr14"),]
+chr15.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr15"),]
+chr16.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr16"),]
+chr17.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr17"),]
+chr18.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr18"),]
+chr19.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr19"),]
+chr20.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr20"),]
+chr21.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr21"),]
+chr22.60kb <- coverage.60kb[which(coverage.60kb$chr=="chr22"),]
+chrX.60kb <- coverage.60kb[which(coverage.60kb$chr=="chrX"),]
+chrY.60kb <- coverage.60kb[which(coverage.60kb$chr=="chrY"),]
+
+#Get the coverage for .70kb for all the chromosomes
+chr1.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr1"),]
+chr2.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr2"),]
+chr3.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr3"),]
+chr4.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr4"),]
+chr5.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr5"),]
+chr6.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr6"),]
+chr7.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr7"),]
+chr8.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr8"),]
+chr9.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr9"),]
+chr10.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr10"),]
+chr11.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr11"),]
+chr12.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr12"),]
+chr13.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr13"),]
+chr14.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr14"),]
+chr15.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr15"),]
+chr16.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr16"),]
+chr17.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr17"),]
+chr18.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr18"),]
+chr19.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr19"),]
+chr20.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr20"),]
+chr21.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr21"),]
+chr22.70kb <- coverage.70kb[which(coverage.70kb$chr=="chr22"),]
+chrX.70kb <- coverage.70kb[which(coverage.70kb$chr=="chrX"),]
+chrY.70kb <- coverage.70kb[which(coverage.70kb$chr=="chrY"),]
+
+#Get the coverage for .80kb for all the chromosomes
+chr1.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr1"),]
+chr2.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr2"),]
+chr3.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr3"),]
+chr4.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr4"),]
+chr5.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr5"),]
+chr6.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr6"),]
+chr7.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr7"),]
+chr8.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr8"),]
+chr9.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr9"),]
+chr10.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr10"),]
+chr11.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr11"),]
+chr12.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr12"),]
+chr13.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr13"),]
+chr14.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr14"),]
+chr15.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr15"),]
+chr16.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr16"),]
+chr17.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr17"),]
+chr18.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr18"),]
+chr19.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr19"),]
+chr20.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr20"),]
+chr21.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr21"),]
+chr22.80kb <- coverage.80kb[which(coverage.80kb$chr=="chr22"),]
+chrX.80kb <- coverage.80kb[which(coverage.80kb$chr=="chrX"),]
+chrY.80kb <- coverage.80kb[which(coverage.80kb$chr=="chrY"),]
+
+#Get the coverage for .90kb for all the chromosomes
+chr1.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr1"),]
+chr2.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr2"),]
+chr3.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr3"),]
+chr4.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr4"),]
+chr5.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr5"),]
+chr6.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr6"),]
+chr7.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr7"),]
+chr8.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr8"),]
+chr9.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr9"),]
+chr10.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr10"),]
+chr11.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr11"),]
+chr12.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr12"),]
+chr13.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr13"),]
+chr14.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr14"),]
+chr15.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr15"),]
+chr16.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr16"),]
+chr17.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr17"),]
+chr18.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr18"),]
+chr19.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr19"),]
+chr20.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr20"),]
+chr21.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr21"),]
+chr22.90kb <- coverage.90kb[which(coverage.90kb$chr=="chr22"),]
+chrX.90kb <- coverage.90kb[which(coverage.90kb$chr=="chrX"),]
+chrY.90kb <- coverage.90kb[which(coverage.90kb$chr=="chrY"),]
+
+#Get the coverage for .100kb for all the chromosomes
+chr1.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr1"),]
+chr2.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr2"),]
+chr3.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr3"),]
+chr4.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr4"),]
+chr5.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr5"),]
+chr6.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr6"),]
+chr7.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr7"),]
+chr8.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr8"),]
+chr9.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr9"),]
+chr10.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr10"),]
+chr11.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr11"),]
+chr12.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr12"),]
+chr13.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr13"),]
+chr14.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr14"),]
+chr15.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr15"),]
+chr16.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr16"),]
+chr17.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr17"),]
+chr18.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr18"),]
+chr19.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr19"),]
+chr20.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr20"),]
+chr21.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr21"),]
+chr22.100kb <- coverage.100kb[which(coverage.100kb$chr=="chr22"),]
+chrX.100kb <- coverage.100kb[which(coverage.100kb$chr=="chrX"),]
+chrY.100kb <- coverage.100kb[which(coverage.100kb$chr=="chrY"),]
+
+#Get the coverage for .125kb for all the chromosomes
+chr1.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr1"),]
+chr2.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr2"),]
+chr3.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr3"),]
+chr4.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr4"),]
+chr5.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr5"),]
+chr6.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr6"),]
+chr7.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr7"),]
+chr8.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr8"),]
+chr9.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr9"),]
+chr10.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr10"),]
+chr11.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr11"),]
+chr12.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr12"),]
+chr13.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr13"),]
+chr14.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr14"),]
+chr15.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr15"),]
+chr16.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr16"),]
+chr17.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr17"),]
+chr18.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr18"),]
+chr19.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr19"),]
+chr20.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr20"),]
+chr21.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr21"),]
+chr22.125kb <- coverage.125kb[which(coverage.125kb$chr=="chr22"),]
+chrX.125kb <- coverage.125kb[which(coverage.125kb$chr=="chrX"),]
+chrY.125kb <- coverage.125kb[which(coverage.125kb$chr=="chrY"),]
+
+#Get the coverage for .150kb for all the chromosomes
+chr1.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr1"),]
+chr2.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr2"),]
+chr3.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr3"),]
+chr4.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr4"),]
+chr5.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr5"),]
+chr6.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr6"),]
+chr7.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr7"),]
+chr8.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr8"),]
+chr9.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr9"),]
+chr10.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr10"),]
+chr11.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr11"),]
+chr12.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr12"),]
+chr13.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr13"),]
+chr14.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr14"),]
+chr15.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr15"),]
+chr16.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr16"),]
+chr17.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr17"),]
+chr18.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr18"),]
+chr19.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr19"),]
+chr20.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr20"),]
+chr21.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr21"),]
+chr22.150kb <- coverage.150kb[which(coverage.150kb$chr=="chr22"),]
+chrX.150kb <- coverage.150kb[which(coverage.150kb$chr=="chrX"),]
+chrY.150kb <- coverage.150kb[which(coverage.150kb$chr=="chrY"),]
+
+#Get the coverage for .200kb for all the chromosomes
+chr1.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr1"),]
+chr2.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr2"),]
+chr3.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr3"),]
+chr4.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr4"),]
+chr5.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr5"),]
+chr6.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr6"),]
+chr7.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr7"),]
+chr8.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr8"),]
+chr9.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr9"),]
+chr10.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr10"),]
+chr11.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr11"),]
+chr12.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr12"),]
+chr13.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr13"),]
+chr14.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr14"),]
+chr15.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr15"),]
+chr16.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr16"),]
+chr17.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr17"),]
+chr18.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr18"),]
+chr19.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr19"),]
+chr20.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr20"),]
+chr21.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr21"),]
+chr22.200kb <- coverage.200kb[which(coverage.200kb$chr=="chr22"),]
+chrX.200kb <- coverage.200kb[which(coverage.200kb$chr=="chrX"),]
+chrY.200kb <- coverage.200kb[which(coverage.200kb$chr=="chrY"),]
+
+
+
+#Get the bins for .50kb for all the chromosomes.
+bins.1.50kb <- optimize.bin.sums(chr1.50kb)
+bins.2.50kb <- optimize.bin.sums(chr2.50kb)
+bins.3.50kb <- optimize.bin.sums(chr3.50kb)
+bins.4.50kb <- optimize.bin.sums(chr4.50kb)
+bins.5.50kb <- optimize.bin.sums(chr5.50kb)
+bins.6.50kb <- optimize.bin.sums(chr6.50kb)
+bins.7.50kb <- optimize.bin.sums(chr7.50kb)
+bins.8.50kb <- optimize.bin.sums(chr8.50kb)
+bins.9.50kb <- optimize.bin.sums(chr9.50kb)
+bins.10.50kb <- optimize.bin.sums(chr10.50kb)
+bins.11.50kb <- optimize.bin.sums(chr11.50kb)
+bins.12.50kb <- optimize.bin.sums(chr12.50kb)
+bins.13.50kb <- optimize.bin.sums(chr13.50kb)
+bins.14.50kb <- optimize.bin.sums(chr14.50kb)
+bins.15.50kb <- optimize.bin.sums(chr15.50kb)
+bins.16.50kb <- optimize.bin.sums(chr16.50kb)
+bins.17.50kb <- optimize.bin.sums(chr17.50kb)
+bins.18.50kb <- optimize.bin.sums(chr18.50kb)
+bins.19.50kb <- optimize.bin.sums(chr19.50kb)
+bins.20.50kb <- optimize.bin.sums(chr20.50kb)
+bins.21.50kb <- optimize.bin.sums(chr21.50kb)
+bins.22.50kb <- optimize.bin.sums(chr22.50kb)
+bins.X.50kb <- optimize.bin.sums(chrX.50kb)
+bins.Y.50kb <- optimize.bin.sums(chrY.50kb)
+
+#Get the bins for .60kb for all the chromosomes.
+bins.1.60kb <- optimize.bin.sums(chr1.60kb)
+bins.2.60kb <- optimize.bin.sums(chr2.60kb)
+bins.3.60kb <- optimize.bin.sums(chr3.60kb)
+bins.4.60kb <- optimize.bin.sums(chr4.60kb)
+bins.5.60kb <- optimize.bin.sums(chr5.60kb)
+bins.6.60kb <- optimize.bin.sums(chr6.60kb)
+bins.7.60kb <- optimize.bin.sums(chr7.60kb)
+bins.8.60kb <- optimize.bin.sums(chr8.60kb)
+bins.9.60kb <- optimize.bin.sums(chr9.60kb)
+bins.10.60kb <- optimize.bin.sums(chr10.60kb)
+bins.11.60kb <- optimize.bin.sums(chr11.60kb)
+bins.12.60kb <- optimize.bin.sums(chr12.60kb)
+bins.13.60kb <- optimize.bin.sums(chr13.60kb)
+bins.14.60kb <- optimize.bin.sums(chr14.60kb)
+bins.15.60kb <- optimize.bin.sums(chr15.60kb)
+bins.16.60kb <- optimize.bin.sums(chr16.60kb)
+bins.17.60kb <- optimize.bin.sums(chr17.60kb)
+bins.18.60kb <- optimize.bin.sums(chr18.60kb)
+bins.19.60kb <- optimize.bin.sums(chr19.60kb)
+bins.20.60kb <- optimize.bin.sums(chr20.60kb)
+bins.21.60kb <- optimize.bin.sums(chr21.60kb)
+bins.22.60kb <- optimize.bin.sums(chr22.60kb)
+bins.X.60kb <- optimize.bin.sums(chrX.60kb)
+bins.Y.60kb <- optimize.bin.sums(chrY.60kb)
+
+#Get the bins for .70kb for all the chromosomes.
+bins.1.70kb <- optimize.bin.sums(chr1.70kb)
+bins.2.70kb <- optimize.bin.sums(chr2.70kb)
+bins.3.70kb <- optimize.bin.sums(chr3.70kb)
+bins.4.70kb <- optimize.bin.sums(chr4.70kb)
+bins.5.70kb <- optimize.bin.sums(chr5.70kb)
+bins.6.70kb <- optimize.bin.sums(chr6.70kb)
+bins.7.70kb <- optimize.bin.sums(chr7.70kb)
+bins.8.70kb <- optimize.bin.sums(chr8.70kb)
+bins.9.70kb <- optimize.bin.sums(chr9.70kb)
+bins.10.70kb <- optimize.bin.sums(chr10.70kb)
+bins.11.70kb <- optimize.bin.sums(chr11.70kb)
+bins.12.70kb <- optimize.bin.sums(chr12.70kb)
+bins.13.70kb <- optimize.bin.sums(chr13.70kb)
+bins.14.70kb <- optimize.bin.sums(chr14.70kb)
+bins.15.70kb <- optimize.bin.sums(chr15.70kb)
+bins.16.70kb <- optimize.bin.sums(chr16.70kb)
+bins.17.70kb <- optimize.bin.sums(chr17.70kb)
+bins.18.70kb <- optimize.bin.sums(chr18.70kb)
+bins.19.70kb <- optimize.bin.sums(chr19.70kb)
+bins.20.70kb <- optimize.bin.sums(chr20.70kb)
+bins.21.70kb <- optimize.bin.sums(chr21.70kb)
+bins.22.70kb <- optimize.bin.sums(chr22.70kb)
+bins.X.70kb <- optimize.bin.sums(chrX.70kb)
+bins.Y.70kb <- optimize.bin.sums(chrY.70kb)
+
+#Get the bins for .80kb for all the chromosomes.
+bins.1.80kb <- optimize.bin.sums(chr1.80kb)
+bins.2.80kb <- optimize.bin.sums(chr2.80kb)
+bins.3.80kb <- optimize.bin.sums(chr3.80kb)
+bins.4.80kb <- optimize.bin.sums(chr4.80kb)
+bins.5.80kb <- optimize.bin.sums(chr5.80kb)
+bins.6.80kb <- optimize.bin.sums(chr6.80kb)
+bins.7.80kb <- optimize.bin.sums(chr7.80kb)
+bins.8.80kb <- optimize.bin.sums(chr8.80kb)
+bins.9.80kb <- optimize.bin.sums(chr9.80kb)
+bins.10.80kb <- optimize.bin.sums(chr10.80kb)
+bins.11.80kb <- optimize.bin.sums(chr11.80kb)
+bins.12.80kb <- optimize.bin.sums(chr12.80kb)
+bins.13.80kb <- optimize.bin.sums(chr13.80kb)
+bins.14.80kb <- optimize.bin.sums(chr14.80kb)
+bins.15.80kb <- optimize.bin.sums(chr15.80kb)
+bins.16.80kb <- optimize.bin.sums(chr16.80kb)
+bins.17.80kb <- optimize.bin.sums(chr17.80kb)
+bins.18.80kb <- optimize.bin.sums(chr18.80kb)
+bins.19.80kb <- optimize.bin.sums(chr19.80kb)
+bins.20.80kb <- optimize.bin.sums(chr20.80kb)
+bins.21.80kb <- optimize.bin.sums(chr21.80kb)
+bins.22.80kb <- optimize.bin.sums(chr22.80kb)
+bins.X.80kb <- optimize.bin.sums(chrX.80kb)
+bins.Y.80kb <- optimize.bin.sums(chrY.80kb)
+
+#Get the bins for .90kb for all the chromosomes.
+bins.1.90kb <- optimize.bin.sums(chr1.90kb)
+bins.2.90kb <- optimize.bin.sums(chr2.90kb)
+bins.3.90kb <- optimize.bin.sums(chr3.90kb)
+bins.4.90kb <- optimize.bin.sums(chr4.90kb)
+bins.5.90kb <- optimize.bin.sums(chr5.90kb)
+bins.6.90kb <- optimize.bin.sums(chr6.90kb)
+bins.7.90kb <- optimize.bin.sums(chr7.90kb)
+bins.8.90kb <- optimize.bin.sums(chr8.90kb)
+bins.9.90kb <- optimize.bin.sums(chr9.90kb)
+bins.10.90kb <- optimize.bin.sums(chr10.90kb)
+bins.11.90kb <- optimize.bin.sums(chr11.90kb)
+bins.12.90kb <- optimize.bin.sums(chr12.90kb)
+bins.13.90kb <- optimize.bin.sums(chr13.90kb)
+bins.14.90kb <- optimize.bin.sums(chr14.90kb)
+bins.15.90kb <- optimize.bin.sums(chr15.90kb)
+bins.16.90kb <- optimize.bin.sums(chr16.90kb)
+bins.17.90kb <- optimize.bin.sums(chr17.90kb)
+bins.18.90kb <- optimize.bin.sums(chr18.90kb)
+bins.19.90kb <- optimize.bin.sums(chr19.90kb)
+bins.20.90kb <- optimize.bin.sums(chr20.90kb)
+bins.21.90kb <- optimize.bin.sums(chr21.90kb)
+bins.22.90kb <- optimize.bin.sums(chr22.90kb)
+bins.X.90kb <- optimize.bin.sums(chrX.90kb)
+bins.Y.90kb <- optimize.bin.sums(chrY.90kb)
+
+#Get the bins for .100kb for all the chromosomes.
+bins.1.100kb <- optimize.bin.sums(chr1.100kb)
+bins.2.100kb <- optimize.bin.sums(chr2.100kb)
+bins.3.100kb <- optimize.bin.sums(chr3.100kb)
+bins.4.100kb <- optimize.bin.sums(chr4.100kb)
+bins.5.100kb <- optimize.bin.sums(chr5.100kb)
+bins.6.100kb <- optimize.bin.sums(chr6.100kb)
+bins.7.100kb <- optimize.bin.sums(chr7.100kb)
+bins.8.100kb <- optimize.bin.sums(chr8.100kb)
+bins.9.100kb <- optimize.bin.sums(chr9.100kb)
+bins.10.100kb <- optimize.bin.sums(chr10.100kb)
+bins.11.100kb <- optimize.bin.sums(chr11.100kb)
+bins.12.100kb <- optimize.bin.sums(chr12.100kb)
+bins.13.100kb <- optimize.bin.sums(chr13.100kb)
+bins.14.100kb <- optimize.bin.sums(chr14.100kb)
+bins.15.100kb <- optimize.bin.sums(chr15.100kb)
+bins.16.100kb <- optimize.bin.sums(chr16.100kb)
+bins.17.100kb <- optimize.bin.sums(chr17.100kb)
+bins.18.100kb <- optimize.bin.sums(chr18.100kb)
+bins.19.100kb <- optimize.bin.sums(chr19.100kb)
+bins.20.100kb <- optimize.bin.sums(chr20.100kb)
+bins.21.100kb <- optimize.bin.sums(chr21.100kb)
+bins.22.100kb <- optimize.bin.sums(chr22.100kb)
+bins.X.100kb <- optimize.bin.sums(chrX.100kb)
+bins.Y.100kb <- optimize.bin.sums(chrY.100kb)
+
+#Get the bins for .125kb for all the chromosomes.
+bins.1.125kb <- optimize.bin.sums(chr1.125kb)
+bins.2.125kb <- optimize.bin.sums(chr2.125kb)
+bins.3.125kb <- optimize.bin.sums(chr3.125kb)
+bins.4.125kb <- optimize.bin.sums(chr4.125kb)
+bins.5.125kb <- optimize.bin.sums(chr5.125kb)
+bins.6.125kb <- optimize.bin.sums(chr6.125kb)
+bins.7.125kb <- optimize.bin.sums(chr7.125kb)
+bins.8.125kb <- optimize.bin.sums(chr8.125kb)
+bins.9.125kb <- optimize.bin.sums(chr9.125kb)
+bins.10.125kb <- optimize.bin.sums(chr10.125kb)
+bins.11.125kb <- optimize.bin.sums(chr11.125kb)
+bins.12.125kb <- optimize.bin.sums(chr12.125kb)
+bins.13.125kb <- optimize.bin.sums(chr13.125kb)
+bins.14.125kb <- optimize.bin.sums(chr14.125kb)
+bins.15.125kb <- optimize.bin.sums(chr15.125kb)
+bins.16.125kb <- optimize.bin.sums(chr16.125kb)
+bins.17.125kb <- optimize.bin.sums(chr17.125kb)
+bins.18.125kb <- optimize.bin.sums(chr18.125kb)
+bins.19.125kb <- optimize.bin.sums(chr19.125kb)
+bins.20.125kb <- optimize.bin.sums(chr20.125kb)
+bins.21.125kb <- optimize.bin.sums(chr21.125kb)
+bins.22.125kb <- optimize.bin.sums(chr22.125kb)
+bins.X.125kb <- optimize.bin.sums(chrX.125kb)
+bins.Y.125kb <- optimize.bin.sums(chrY.125kb)
+
+#Get the bins for .150kb for all the chromosomes.
+bins.1.150kb <- optimize.bin.sums(chr1.150kb)
+bins.2.150kb <- optimize.bin.sums(chr2.150kb)
+bins.3.150kb <- optimize.bin.sums(chr3.150kb)
+bins.4.150kb <- optimize.bin.sums(chr4.150kb)
+bins.5.150kb <- optimize.bin.sums(chr5.150kb)
+bins.6.150kb <- optimize.bin.sums(chr6.150kb)
+bins.7.150kb <- optimize.bin.sums(chr7.150kb)
+bins.8.150kb <- optimize.bin.sums(chr8.150kb)
+bins.9.150kb <- optimize.bin.sums(chr9.150kb)
+bins.10.150kb <- optimize.bin.sums(chr10.150kb)
+bins.11.150kb <- optimize.bin.sums(chr11.150kb)
+bins.12.150kb <- optimize.bin.sums(chr12.150kb)
+bins.13.150kb <- optimize.bin.sums(chr13.150kb)
+bins.14.150kb <- optimize.bin.sums(chr14.150kb)
+bins.15.150kb <- optimize.bin.sums(chr15.150kb)
+bins.16.150kb <- optimize.bin.sums(chr16.150kb)
+bins.17.150kb <- optimize.bin.sums(chr17.150kb)
+bins.18.150kb <- optimize.bin.sums(chr18.150kb)
+bins.19.150kb <- optimize.bin.sums(chr19.150kb)
+bins.20.150kb <- optimize.bin.sums(chr20.150kb)
+bins.21.150kb <- optimize.bin.sums(chr21.150kb)
+bins.22.150kb <- optimize.bin.sums(chr22.150kb)
+bins.X.150kb <- optimize.bin.sums(chrX.150kb)
+bins.Y.150kb <- optimize.bin.sums(chrY.150kb)
+
+#Get the bins for .200kb for all the chromosomes.
+bins.1.200kb <- optimize.bin.sums(chr1.200kb)
+bins.2.200kb <- optimize.bin.sums(chr2.200kb)
+bins.3.200kb <- optimize.bin.sums(chr3.200kb)
+bins.4.200kb <- optimize.bin.sums(chr4.200kb)
+bins.5.200kb <- optimize.bin.sums(chr5.200kb)
+bins.6.200kb <- optimize.bin.sums(chr6.200kb)
+bins.7.200kb <- optimize.bin.sums(chr7.200kb)
+bins.8.200kb <- optimize.bin.sums(chr8.200kb)
+bins.9.200kb <- optimize.bin.sums(chr9.200kb)
+bins.10.200kb <- optimize.bin.sums(chr10.200kb)
+bins.11.200kb <- optimize.bin.sums(chr11.200kb)
+bins.12.200kb <- optimize.bin.sums(chr12.200kb)
+bins.13.200kb <- optimize.bin.sums(chr13.200kb)
+bins.14.200kb <- optimize.bin.sums(chr14.200kb)
+bins.15.200kb <- optimize.bin.sums(chr15.200kb)
+bins.16.200kb <- optimize.bin.sums(chr16.200kb)
+bins.17.200kb <- optimize.bin.sums(chr17.200kb)
+bins.18.200kb <- optimize.bin.sums(chr18.200kb)
+bins.19.200kb <- optimize.bin.sums(chr19.200kb)
+bins.20.200kb <- optimize.bin.sums(chr20.200kb)
+bins.21.200kb <- optimize.bin.sums(chr21.200kb)
+bins.22.200kb <- optimize.bin.sums(chr22.200kb)
+bins.X.200kb <- optimize.bin.sums(chrX.200kb)
+bins.Y.200kb <- optimize.bin.sums(chrY.200kb)
+```
+
