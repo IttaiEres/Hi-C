@@ -26,35 +26,114 @@ colnames(full_coverage) <- c("chr", "start", "end", "count")
 genome <- c("chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20", "chr21", "chr22", "chrX", "chrY")
 ```
 
-```{r Meeting w/ Yoav--clean info}
-#First, for each different locus bin size available (10kb, 20kb, 30kb, 40kb), produce a boxplot across distance bins of means of contact counts for each chromosome.
-
-###10kb Analysis--chromosome by chromosome, first showing chromosomal boxplot distributions for different distance bins and the corresponding histograms, then visualizing the percentage overlap with homer-significant hits.
-for(chr in genome){
-  chrom.visualizer(tab_df.10kb.full, chr)
-  overlap.visualizer(overlap.10kb.GW, chr)
+```{r MEGA FUNCTION--do.it.all}
+do.it.all <- function(locus.bin.size, start=0, end=250000, by=10000, variable.list=c("chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20", "chr21", "chr22", "chrX", "chrY")){
+  setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/cis_only/cis_only_coverage") #Set to correct WD for grabbing coverage files
+	coverage <- fread(paste("coverage_", locus.bin.size, "kb_5kb.bed", sep=""), sep="\t", header=FALSE, stringsAsFactors=FALSE) #Pull out coverage for the given size
+	colnames(coverage) <- c("chr", "start", "end", "count") #Rename the columns of the coverage df to work with other functions
+	
+	setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/cis_only/paired_read_midpoint_positions") #Set to correct WD for grabbing read pair positions in loop below
+	
+	#Initialize named list for storing information on different chromosomes
+	full.tab.list <- vector("list", length(variable.list))
+	names(full.tab.list) <- variable.list
+	
+	#Begin iterating through all chromosomes!
+	for(chromosome in variable.list){
+	
+		#Grab the coverage df and midpoint positions df for this chromosome
+		tmp.coverage <- coverage[coverage$chr==chromosome,]
+		tmp.pos.df <- fread(paste("midpoint.pairs.", substr(chromosome, 4, 5), sep=""), header=FALSE, stringsAsFactors=FALSE)
+		
+		#Get all the tabulation dfs for all chromosomes at this bin size. Form: tab_df.chrX.Xkb
+		full.tab.list[[chromosome]] <- full.chrom.tabulator(tmp.coverage, tmp.pos.df, start, end, by, chromosome)
+	}
+	
+	#Once all the tabulation list has been created, assign it into one long-form df!
+	full_tab_df <- rbind.fill(full.tab.list)
+	
+	#Add a column to this long-form df noting the locus bin size for this set of info
+	#full_tab_df$bin.size <- locus.bin.size
+	
+	#Write this long-form df out into a separate file!
+	write.table(full_tab_df, file=paste("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/full_data_frames/full_tab_df.", locus.bin.size, "kb", sep=""), sep="\t", col.names=T, row.names=F, quote=F)
+	
+	#Initialize named list for storing homer overlap information on different chromosomes
+	full.homer.overlap.list <- vector("list", length(variable.list))
+	names(full.homer.overlap.list) <- variable.list
+	
+	#Iterate through dem chromosomes to do dat homer signif comparison!
+	for(chromosome in variable.list){
+	  full.homer.overlap.list[[chromosome]] <- signif.comparison(chromosome, full_tab_df, locus.bin.size, percents=c(20, 10, 5, 1, 0.5, 0.1))
+	}
+	
+	#Once all the homer overlap list has been created, assign it into one long-form df!
+	full_homer_overlap_df <- rbind.fill(full.homer.overlap.list)
+	
+	#Write this long-form df out into a separate file!
+	write.table(full_homer_overlap_df, file=paste("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/full_homer_overlap_dfs/full_homer_overlap_df.", locus.bin.size, "kb", sep=""), sep="\t", col.names=T, row.names=F, quote=F)
 }
 
-
+##########Ready for takeoff in 3...2....1.......
+for(locus.bin.size in c(seq(10, 40, 10))){
+  do.it.all(locus.bin.size = locus.bin.size)
+}
 ```
 
 
-```{r Sanity checking to make sure everything makes sense! Go through everything with chr 22 just to ensure}
+```{r Work space for the do it all function checking things individually on chr22}
+#Read in all the chr22 data!
+setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/cis_only/cis_only_coverage")
+full_coverage <- fread("coverage_10kb_5kb.bed", sep="\t", header=F, stringsAsFactors = FALSE)
+colnames(full_coverage) <- c("chr", "start", "end", "count")
 coverage.22 <- full_coverage[full_coverage$chr=="chr22",] #Get coverage df for chr22.
 setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/cis_only/paired_read_midpoint_positions")
 pos.22 <- fread("midpoint.pairs.22", header=FALSE, stringsAsFactors = FALSE) #Get pos df for chr22.
-tab.22 <- basic_tabulation(coverage.22, pos.22, 0, 35000000) #Tabulate all contact counts for chr22, just to check!
-data.22 <- full.chrom.tabulator(coverage.22, pos.22, 0, 50000, 5000)
+contacts.22 <- full.chrom.tabulator(coverage.22, pos.22, 0, 100000, 5000, "chr22") #Get full tab df for chr22.
+sig.22 <- sig.thresh.finder(contacts.22, c(20, 15, 10, 5)) #Get significance threshold values for this df.
 
+#Read in homer significance data for chr22!
+setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/homer.signif/sig_10kb")
+homer.10kb.chr22 <- fread("chr22_10kb_siglocs.txt", header=TRUE, stringsAsFactors = FALSE)
 
+####Reformat homer to be sure it works.
+colnames(homer.10kb.chr22) <- c("start1", "end1", "start2", "end2")
+start1_new <- ifelse(homer.10kb.chr22$start1<homer.10kb.chr22$start2, homer.10kb.chr22$start1, homer.10kb.chr22$start2) #reorders columns so pos1 < pos2. important for not repeating bin pairs
+start2_new <- ifelse(homer.10kb.chr22$start1<homer.10kb.chr22$start2, homer.10kb.chr22$start2, homer.10kb.chr22$start1) #If true, returns second arg; if false, returns third.
+end1_new <-ifelse(homer.10kb.chr22$start1<homer.10kb.chr22$start2, homer.10kb.chr22$end1, homer.10kb.chr22$end2)
+end2_new <- ifelse(homer.10kb.chr22$start1<homer.10kb.chr22$start2, homer.10kb.chr22$end2, homer.10kb.chr22$end1)
+homer.10kb.chr22$start1 <- start1_new
+homer.10kb.chr22$start2 <- start2_new
+homer.10kb.chr22$end1 <- end1_new
+homer.10kb.chr22$end2 <- end2_new
+homer.10kb.chr22$loc1 <- rowMeans(homer.10kb.chr22[,1:2]) #Get midpoint of start1 and end1, for loc1
+homer.10kb.chr22$loc2 <- rowMeans(homer.10kb.chr22[,3:4]) #Same for loc2 (start2 and end2)
+homer.10kb.chr22$distance <- abs(homer.10kb.chr22$loc1-homer.10kb.chr22$loc2)
+  
+##Now, obtain bins from chr_df and use those to assign my bins to the homer-sig hits:
+characters <- (unique(nchar(as.character(contacts.22$loc1_bin)))-3)/2
+chr.bins <- unique(sort(c(as.numeric(substr(contacts.22$loc1_bin, 2, characters+1)), as.numeric(substr(contacts.22$loc1_bin, characters+3, 2*characters+2)), as.numeric(substr(contacts.22$loc2_bin, 2, characters+1)), as.numeric(substr(contacts.22$loc2_bin, characters+3, 2*characters+2)))))
 
-sig.22 <- sig.thresh.finder("chr22", data.22, my.ps)
+homer.sig <- homer.10kb.chr22 %>% mutate(loc1_bin=cut2(loc1, chr.bins, onlycuts=TRUE, oneval=FALSE, digits=9)) %>% mutate(loc2_bin=cut2(loc2, chr.bins, onlycuts=TRUE, oneval=FALSE, digits=9))
 
-bins.22 <- optimize.bin.sums(coverage.22)
-bins.vec.22 <- unique(sort(c(bins.22$start, bins.22$end)))
+#Subset down to just the distance and pair bins from the homer.sig data
+homer.sig <- homer.sig[,7:9]
 
-# To check that the bins in the tabulation all make sense--they do!
-unique(substr(levels(tab.22$pos1_bin), 15, 18))
+#Remove duplicates, if any
+homer.sig <- homer.sig[homer.sig$loc1_bin!=homer.sig$loc2_bin,] 
+
+#Obtain distance b/t bins
+slide <- as.numeric(unique(contacts.22$dist.bin)[2]-unique(contacts.22$dist.bin)[1])
+
+#Testing!
+my.sigs <- contacts.22[(contacts.22$dist.bin=="10000")&contacts.22$count>=(sig.22["10000", "0.2"]),] #Get my significant contacts
+tmp.homer.sig <- homer.sig[(homer.sig$distance)>=10000&homer.sig$distance<(10000+slide), 2:3] #Pull out homer's significant contacts at this range
+
+tmp.overlap <- merge(my.sigs[,3:4], tmp.homer.sig)
+nrow(merge(my.sigs[,3:4], tmp.homer.sig))
+
+indices <- my.sigs[(my.sigs$loc1_bin %in% tmp.overlap$loc1_bin)&(my.sigs$loc2_bin %in% tmp.overlap$loc2_bin),] #Use this, appears to work 
+indices.test <- my.sigs[(my.sigs$loc1_bin %in% tmp.homer.sig$loc1_bin) & (my.sigs$loc2_bin %in% tmp.homer.sig$loc2_bin),] #This could (and does) accidentally pull out some rows that are not truly matching, but that simply had loc1 match in 1 row and loc2 in another (not the same)
 ```
 
 ```{r Overlap of significance with Homer}
@@ -62,6 +141,8 @@ setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/homer.signif/sig_10kb")
 homer.10kb.chr22 <- fread("chr2_10kb_siglocs.txt", header=TRUE, stringsAsFactors = FALSE)
 
 test <- signif.comparison("chr22_10kb_siglocs.txt", "chr22", tab_df.10kb.full, 10)
+
+
 
 nrow(merge(homer.10kb.sigs, my.10kb.sigs))
 ```
@@ -141,7 +222,7 @@ full.chrom.tabulator <- function(coverage_df, pos_df, start, end, by, chr){
     if(is.null(nrow(basic_tabulation(coverage_df, pos_df, distances[distance], distances[distance]+by)))){next} #Check that there are contacts at that distance on this chromosome. If not, move on.
     tmp.table <- basic_tabulation(coverage_df, pos_df, distances[distance], distances[distance]+by) #If contacts found, tabulate!
     tmp.table <- tmp.table[tmp.table$pos1_bin!=tmp.table$pos2_bin,] #Remove any contacts that are between loci within the same bin. Meaningless! Or will this ruin the background model estimation? We shall see!
-    tabulation.list[[distance]] <- data.frame(chr=chr,  bin=distances[distance], loc1=tmp.table$pos1_bin, loc2=tmp.table$pos2_bin, count=tmp.table$count) #Put a data frame with all the info about contacts at this distance into the list
+    tabulation.list[[distance]] <- data.frame(chr=chr,  dist.bin=distances[distance], loc1_bin=tmp.table$pos1_bin, loc2_bin=tmp.table$pos2_bin, count=tmp.table$count) #Put a data frame with all the info about contacts at this distance into the list
   }
   tabulation.df <- do.call(rbind, tabulation.list) #Combine all the lists into a single long-form dataframe.
   return(tabulation.df)
@@ -152,18 +233,18 @@ chrom.visualizer <- function(full_tab_df, chr){
   full_tab_df <- full_tab_df[full_tab_df$chr==chr,]
   options(warn=-1) #Turn off warnings, not sure why they come up when running this but it doesn't matter.
   
-  p <- ggplot(full_tab_df, aes(x=bin, y=count)) + geom_boxplot(aes(group=bin)) + ggtitle(paste("Distributions of Contact Counts for Pairs at Various Distances,", unique(full_tab_df$chr))) + ylab("Contact Count (Reads)") + xlab("Pair Distance Bins") #For actually visualizing boxplots of count distributions for different distance bins.
+  p <- ggplot(full_tab_df, aes(x=bin, y=count)) + geom_boxplot(aes(group=dist.bin)) + ggtitle(paste("Distributions of Contact Counts for Pairs at Various Distances,", unique(full_tab_df$chr))) + ylab("Contact Count (Reads)") + xlab("Pair Distance Bins") #For actually visualizing boxplots of count distributions for different distance bins.
   
   print(p) #Show that set of boxplots!
   
-  distances <- unique(full_tab_df$bin) #Grab all the distance bins.
+  distances <- unique(full_tab_df$dist.bin) #Grab all the distance bins.
   spacing <- (distances[2]-distances[1])/1000 #Calculate the spacing between distance bins (for titles of histograms)
   
   for(bin in distances){ #Make and print individual histograms for each of the different distance bins!
-    if(nrow(full_tab_df[full_tab_df$bin==bin,])==0){next}
+    if(nrow(full_tab_df[full_tab_df$dist.bin==bin,])==0){next}
     else{
       #print(bin) for some reason this made it all work at one point...but the error received (" Error in grid.Call.graphics(L_setviewport, vp, TRUE) : non-finite location and/or size for viewport ")...appears to come up sporadically, and not consistently for any reason
-      print(qplot(full_tab_df[full_tab_df$bin==bin,5], geom="histogram", binwidth=1, xlab="Contact Count (Reads)", ylab="Frequency", main=paste("Histogram of Contact Counts for Pairs", bin/1000, "to", (bin/1000)+spacing, "kb apart,", chr)))
+      print(qplot(full_tab_df[full_tab_df$dist.bin==bin,5], geom="histogram", binwidth=1, xlab="Contact Count (Reads)", ylab="Frequency", main=paste("Histogram of Contact Counts for Pairs", bin/1000, "to", (bin/1000)+spacing, "kb apart,", chr)))
     }
     
     options(warn=0) #Turn warnings back on so as not to mess with anything else.
@@ -173,54 +254,37 @@ chrom.visualizer <- function(full_tab_df, chr){
 #Function to obtain the values that represent the contact count # threshold for the top 'percents' of each distribution.
 sig.thresh.finder <- function(full_tab_df, percents){
 
-  bins <- unique(full_tab_df$bin) #Grab the bins
+  bins <- unique(full_tab_df$dist.bin) #Grab the bins
   percents <- percents*.01 #Re-scale the percents to work with quantile in the loop below.
   
   values.df <- data.frame(matrix(nrow=length(bins), ncol=length(percents))) #Initialize the df to be returned
   colnames(values.df) <- percents #Initialize the df's colnames for iterating through
   rownames(values.df) <- bins #Initialize the df's rownames for iterating through
   
-  #Remove rows that are duplicate bins with each other!
-  characters <- (unique(nchar(as.character(full_tab_df$loc1)))-3)/2
-  start1 <- as.numeric(substr(as.character(full_tab_df$loc1), 2, characters+1))
-  start2 <- as.numeric(substr(as.character(full_tab_df$loc2), 2, characters+1))
-  full_tab_df <- full_tab_df[-which(start1==start2),]
-  
   for(bin in bins){
     for(percent in percents){
-      values.df[as.character(bin), as.character(percent)] <- quantile(full_tab_df$count[full_tab_df$bin==bin], 1-percent)[[1]]#To pull out the value above which are the top percent % of loci
+      values.df[as.character(bin), as.character(percent)] <- quantile(full_tab_df$count[full_tab_df$dist.bin==bin], 1-percent)[[1]]#To pull out the value above which are the top percent % of loci
     }
   }
   return(values.df)
 }
 
 #Function that takes a homer file, a specified chromosome, and a full_tab_df for a given locus size to produce a matrix of significant hit overlaps b/t my data and homer data at a variety of bin distances and percentages.
-signif.comparison <- function(homer.file, chr, full_info, locus_size, percents=c(5, 2.5, 1, 0.5, 0.1)){
+signif.comparison <- function(chr, full_info, locus_size, percents=c(5, 2.5, 1, 0.5, 0.1)){
   #Subset down the full data frame info to the chromosome of interest.
   chr_df <- full_info[full_info$chr==chr,]
-  colnames(chr_df) <- c("chr", "bin", "loc1_bin", "loc2_bin", "count") #Important for proper functioning of call to merge() later on.
+  colnames(chr_df) <- c("chr", "dist.bin", "loc1_bin", "loc2_bin", "count") #Important for proper functioning of call to merge() later on.
   
   #Obtain the bins for assigning bins to homer paired loci.
-  characters <- (unique(nchar(as.character(chr_df$loc1)))-3)/2
-  chr.bins <- unique(sort(c(as.numeric(substr(chr_df$loc1, 2, characters+1)), as.numeric(substr(chr_df$loc1, characters+3, 2*characters+2)), as.numeric(substr(chr_df$loc2, 2, characters+1)), as.numeric(substr(chr_df$loc2, characters+3, 2*characters+2)))))
-
-  #Read in the pos.file for the given chromosome. Represent midpoints of read positions from BAM file, paired.
-  setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/cis_only/paired_read_midpoint_positions")
-  pos.df <- fread(paste("midpoint.pairs.", substr(chr, 4, nchar(chr)), sep=""), header=FALSE, stringsAsFactors = FALSE)
+  characters <- (unique(nchar(as.character(chr_df$loc1_bin)))-3)/2
+  chr.bins <- unique(sort(c(as.numeric(substr(chr_df$loc1_bin, 2, characters+1)), as.numeric(substr(chr_df$loc1_bin, characters+3, 2*characters+2)), as.numeric(substr(chr_df$loc2_bin, 2, characters+1)), as.numeric(substr(chr_df$loc2_bin, characters+3, 2*characters+2)))))
   
   #Get a data frame of the values above which we would consider hits "significant" in the different distance bins.
   sig.values <- sig.thresh.finder(chr_df, percents)
   
-  #Initialize the final long-form data frame containing all information at the end. Add blank columns to be filled.
-  final_df <- melt(sig.values)
-  final_df$bin <- rep(rownames(sig.values), nrow(final_df)/length(rownames(sig.values))) #Make sure to add the bins on as a column.
-  final_df$my.hits <- 0
-  final_df$homer.hits <- 0
-  final_df$overlap <- 0
-  
   #Read in homer file, change column names to work with next lines
   setwd(paste("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/homer.signif/sig_", locus_size, "kb", sep=""))
-  homer.sig <- fread(homer.file, header=TRUE, stringsAsFactors = FALSE)
+  homer.sig <- fread(paste(chr, "_", locus_size, "kb_siglocs.txt", sep=""), header=TRUE, stringsAsFactors = FALSE)
   colnames(homer.sig) <- c("start1", "end1", "start2", "end2")
   
   ##Reformat the homer file to be easier to work with for matching hereafter.
@@ -246,23 +310,46 @@ signif.comparison <- function(homer.file, chr, full_info, locus_size, percents=c
   homer.sig <- homer.sig %>% mutate(loc1_bin=cut2(loc1, chr.bins, onlycuts=TRUE, oneval=FALSE, digits=9)) %>% mutate(loc2_bin=cut2(loc2, chr.bins, onlycuts=TRUE, oneval=FALSE, digits=9))
   
   #Subset down to just the pairs of significant hits bins from the homer data.
-  homer.sig <- homer.sig[,-1:-6] #Gets rid of columns 1-6, column 7 with distance between loci and columns 8 and 9 with position bin assignations are all that matter.
+  homer.sig <- homer.sig[,7:9] #Gets rid of columns 1-6, column 7 with distance between loci and columns 8 and 9 with position bin assignations are all that matter.
+  
+  #Remove any contacts that are between loci within the same bin. Meaningless!I think. We shall see!
+  homer.sig <- homer.sig[homer.sig$loc1_bin!=homer.sig$loc2_bin,] 
   
   #Grab the distance between bins quickly.
-  slide <- as.numeric(unique(chr_df$bin)[2]-unique(chr_df$bin)[1])
+  slide <- as.numeric(unique(chr_df$dist.bin)[2]-unique(chr_df$dist.bin)[1])
   
-  #Iterate across the significance threshold data frame, replacing threshold count values with percentage overlap with homer significant hits.
+  #Initialize a list to add the data frames to. Will convert to long-form df at the end!
+  contacts.list <- vector("list", dim(sig.values)[1]*dim(sig.values)[2])
+  
+  #Get the names for the contacts.list to be compiled at the end. Critical for inserting dfs into it in the loop below.
+  names(contacts.list) <- do.call("paste", c(melt(t(sig.values))[,1:2], sep=", "))
+  
+  #Iterate across the significance threshold data frame, creating individual dfs for each distance bin-percent combination, then adding a column indicating whether there's overlap with homer hits and finally merging them all together.
   for(bin in rownames(sig.values)){
   	for(percent in colnames(sig.values)){
-  		tmp.my.sigs <- chr_df[(chr_df$bin==bin)&((chr_df$count)>=(sig.values[bin, percent])), 3:4] #Pull out df of my sig hits for this bin and percentage.
+  		tmp.my.sigs <- chr_df[(chr_df$dist.bin==bin)&((chr_df$count)>=(sig.values[bin, percent])),] #Pull out df of my sig hits for this bin and percentage.
   		tmp.homer.sigs <- homer.sig[(homer.sig$distance)>=(as.numeric(bin))&(homer.sig$distance)<(as.numeric(bin)+slide), 2:3] #Same for homer's significant hits.
   		
-  		final_df[final_df$bin==bin&final_df$variable==percent,4] <- nrow(tmp.my.sigs) #Assign number of my hits found.
-  		final_df[final_df$bin==bin&final_df$variable==percent,5] <- nrow(tmp.homer.sigs) #Assign number of homer hits found.
-  		final_df[final_df$bin==bin&final_df$variable==percent,6] <- nrow(merge(tmp.my.sigs, tmp.homer.sigs)) #Assign overlapping hits!
+  		#Add in a few key columns to tmp.my.sigs to make it easier to get the final df after
+  		tmp.my.sigs$percentile <- (1-as.numeric(percent))*100 #Indicate which percentile category these hits fall under
+  		tmp.my.sigs$homer.hit <- 0 #Indicate status WRT whether we can find this pair of contacts in homer significant hits. 0=no, 1=yes!
+  		tmp.my.sigs$my.hits.tot <- nrow(tmp.my.sigs) #How many total significant hits do I find?
+  		tmp.my.sigs$homer.hits.tot <- nrow(tmp.homer.sigs) #How many total significant hits does homer find?
+  		tmp.my.sigs$overlap <- nrow(merge(tmp.my.sigs[,3:4], tmp.homer.sigs)) #What's the overlap of those hits?
+  		
+  		tmp.my.sigs.vec <- do.call("paste", tmp.my.sigs[,3:4]) #Create a vector of all the rows for comparing
+  		tmp.homer.sigs.vec <- do.call("paste", tmp.homer.sigs) #Create a vector of all the rows for comparing
+  		
+  		matching.indices <- which(tmp.my.sigs.vec %in% tmp.homer.sigs.vec) #Extract row indices from my tmp.sigs that match homer sigs!
+  		
+  		tmp.my.sigs$homer.hit[matching.indices] <- 1 #For the rows that are matches with homer hits, indicate this!
+  		
+  		contacts.list[[paste(percent, bin, sep=", ")]] <- tmp.my.sigs
   		}
   }
-  final_df$chr=chr
+
+  final_df <- rbind.fill(contacts.list) #Turn the list into one long-form DF.
+  rownames(final_df) <- NULL #Those are useless.
   return(final_df)
 }
 
@@ -286,14 +373,24 @@ overlap.visualizer <- function(full_overlap.df, chr){
     options(warn=0) #Turn warnings back on so as not to mess with anything else.
 }
 
-#Need to add something in to function to prevent me from having to do this, even.
-overlap.10kb.GW$chr <-c(rep("chr1", 205), rep("chr2", 205), rep("chr3", 205), rep("chr4", 205), rep("chr5", 205), rep("chr6", 205), rep("chr7", 205), rep("chr8", 205), rep("chr9", 205), rep("chr10", 205), rep("chr11", 205), rep("chr12", 205), rep("chr13", 205), rep("chr14", 205), rep("chr15", 205), rep("chr16", 205), rep("chr17", 205), rep("chr18", 205), rep("chr19", 205), rep("chr20", 205), rep("chr21", 205), rep("chr22", 205), rep("chrX", 205), rep("chrY", (nrow(overlap.10kb.GW)-205*23)))
+##A function to assign variable names across the whole genome on a function call...need to figure out how to incorporate 
+variable.assign <- function(fun, base.name, variable.list=c("chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20", "chr21", "chr22", "chrX", "chrY"), ...){
+ params.list <- as.list(substitute(list(...)))
+  for(variable in variable.list){
+   params.list <- as.list(substitute(list(...)))
+   print(params.list)
+   return(params.list)
+   #assign(paste(base.name, variable, sep="."), fun(params, chr=variable))
+ } 
+}
 
-overlap.20kb.GW$chr <-c(rep("chr1", 205), rep("chr2", 205), rep("chr3", 205), rep("chr4", 205), rep("chr5", 205), rep("chr6", 205), rep("chr7", 205), rep("chr8", 205), rep("chr9", 205), rep("chr10", 205), rep("chr11", 205), rep("chr12", 205), rep("chr13", 205), rep("chr14", 205), rep("chr15", 205), rep("chr16", 205), rep("chr17", 205), rep("chr18", 205), rep("chr19", 205), rep("chr20", 205), rep("chr21", 205), rep("chr22", 205), rep("chrX", 205), rep("chrY", 130))
+coverage.extractor <- function(coverage.df, chicken, chr){
+  print(chicken)
+  coverage.df <- coverage.df[coverage.df$chr==chr,]
+  return(coverage.df)
+}
 
-overlap.30kb.GW$chr <-c(rep("chr1", 205), rep("chr2", 205), rep("chr3", 205), rep("chr4", 205), rep("chr5", 205), rep("chr6", 205), rep("chr7", 205), rep("chr8", 205), rep("chr9", 205), rep("chr10", 205), rep("chr11", 205), rep("chr12", 205), rep("chr13", 205), rep("chr14", 205), rep("chr15", 205), rep("chr16", 205), rep("chr17", 205), rep("chr18", 205), rep("chr19", 205), rep("chr20", 205), rep("chr21", 205), rep("chr22", 205), rep("chrX", 205), rep("chrY", 130))
-
-overlap.40kb.GW$chr <-c(rep("chr1", 205), rep("chr2", 205), rep("chr3", 205), rep("chr4", 205), rep("chr5", 205), rep("chr6", 205), rep("chr7", 205), rep("chr8", 205), rep("chr9", 205), rep("chr10", 205), rep("chr11", 205), rep("chr12", 205), rep("chr13", 205), rep("chr14", 205), rep("chr15", 205), rep("chr16", 205), rep("chr17", 205), rep("chr18", 205), rep("chr19", 205), rep("chr20", 205), rep("chr21", 205), rep("chr22", 205), rep("chrX", 205), rep("chrY", 130))
+test <- variable.assign(coverage.extractor, "coverage_10kb", c("this is a test", "uh-oh spagghetios"))
 ```
 
 ```{r New Data assignation, legit AF. Saved in one big dataframe at the end!}
@@ -1965,6 +2062,28 @@ sig.thresh.Y.40kb <- chrom.analyzer("chrY", tab_df.Y.40kb, my.ps)
 ```
 
 ```{r Garbage/backup}
+do.it.all <- function(locus.bin.size, start=0, end=400000, by=10000, variable.list=c("chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20", "chr21", "chr22", "chrX", "chrY")){
+  setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/cis_only/cis_only_coverage") #Set to correct WD for grabbing coverage files
+	coverage <- fread(paste("coverage_", locus.bin.size, "kb_5kb.bed", sep=""), sep="\t", header=FALSE, stringsAsFactors=FALSE) #Pull out coverage for the given size
+	colnames(coverage) <- c("chr", "start", "end", "count") #Rename the columns of the coverage df to work with other functions
+	
+	setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/cis_only/paired_read_midpoint_positions") #Set to correct WD for grabbing read pair positions in loop below
+	
+	#Begin iterating through all chromosomes!
+	for(chromosome in variable.list){
+	
+		#Create all the coverage dfs for all the chromosomes at this bin size. Form: coverage.Xkb.chrX
+		assign(paste("coverage.", locus.bin.size, "kb.", chromosome, sep=""), coverage[coverage$chr==chromosome,])
+		
+		#Create all the read pair position dfs for all chromosomes. Form: pos_df.chrX
+		assign(paste("pos_df.", chromosome, sep=""), fread(paste("midpoint.pairs.", substr(chromosome, 4, 5), sep=""), header=FALSE, stringsAsFactors=FALSE))
+		
+		#Get all the tabulation dfs for all chromosomes at this bin size. Form: tab_df.Xkb.chrX
+		assign(paste("tab_df.", locus.bin.size, "kb.", chromsome, sep=""), full.chrom.tabulator(get(paste("coverage.", locus.bin.size, "kb.", chromosome, sep=""))), get(paste("pos_df.", chromosome, sep="")), start, end, by, chromosome)
+	}
+}
+
+
 #Get the sig.thresh for .10kb for all the chromosomes.
 sig.thresh.1.10kb <- sig.thresh.finder("chr1", tab_df.1.10kb, my.ps)
 sig.thresh.2.10kb <- sig.thresh.finder("chr2", tab_df.2.10kb, my.ps)
@@ -2115,6 +2234,42 @@ signif.comparison <- function(coverage.file, homer.file, chr, start=0, end=50000
 
 setwd("/Users/ittaieres/Desktop/Hi-C/Hi-C Basic Analyze/homer.signif/sig_10kb")
 test <- signif.comparison("chr1_10kb_siglocs.txt", tab_df.1.10kb, 30000, 77)
+
+##Was a part of sig.thresh.finder, but is no longer needed:
+  #Remove rows that are duplicate bins with each other!
+  # characters <- (unique(nchar(as.character(full_tab_df$loc1)))-3)/2
+  # start1 <- as.numeric(substr(as.character(full_tab_df$loc1), 2, characters+1))
+  # start2 <- as.numeric(substr(as.character(full_tab_df$loc2), 2, characters+1))
+  # full_tab_df <- full_tab_df[-which(start1==start2),]
+
+#Here's a set of tests for checking that optimize.bin.sums and the full chrom tabulator both come back with the same (or very similar) results. Sometimes the full chrom tabulator might have a few bins less than the optimize.bin.sums, because, while both work on the coverage df produced by bedtools, optimize bin sums does so without regard for the position DF, whereas the full chrom tabulator assigns the pos df positions to individual bins, so some things that appear as bins from optimize.bin.sums based on the coverage DF are actually irrelevant in making locus bins for tabulation because they represent reads that span multiple bins (since the coverage includes a 100-bp read in each of the bins it may overlap)
+coverage.22 <- full_coverage[full_coverage$chr=="chr22",] #Get coverage df for chr22.
+setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/cis_only/paired_read_midpoint_positions")
+pos.22 <- fread("midpoint.pairs.22", header=FALSE, stringsAsFactors = FALSE) #Get pos df for chr22.
+#Good to here!
+
+tab.22 <- basic_tabulation(coverage.22, pos.22, 0, 35000000) #Tabulate all contact counts for chr22, just to check! But the input to basic_tabulation needs to change
+
+data.22 <- full.chrom.tabulator(coverage.22, pos.22, 0, 341500000, 1000000, "chr22") #Get EVERYTHING! Do this all the way up to the max value with increment distance bin sizes of 1 million just to make computationally efficient. Then check against optimize bin sums result to see all bins are the same (or they should be!)
+
+#Grab bins from this data table!
+data.22.bins <- unique(sort(c(as.numeric(substr(data.22$loc1, 2, 9)), as.numeric(substr(data.22$loc1, 11, 18)), as.numeric(substr(data.22$loc2, 2, 9)), as.numeric(substr(data.22$loc2, 11, 18)))))
+
+#Grab bins more manually with optimize bin sums.
+obs.bins.22 <- optimize.bin.sums(coverage.22)
+bins.vec.22 <- unique(sort(c(obs.bins.22$start, obs.bins.22$end)))
+
+#Compare the two.
+bins.vec.22 %in% data.22.bins
+
+#It is OK for the bins from optimize bin sums and the bins from cutting out parts of a tabulation DF are not all identical--some of the bins created from optimize bin sums may be for contacts that are between loci which are at a distance I don't examine in the creation of the full DF (this is another issue--that really, the DF should encapsulate everything. I need to find a way to set the max distance it'll check to be the max distance for pairs on that chromosome...and to skip over the many sparse distance bins that should exist in between! Add in something to full.chrom.tabulator that finds max distance between pairs and then sets that as the "to" of the seq for pair distance bins--that way, only have to specify "by" in call to function (from should still be 0 always). On the flip side this also creates the issue of having an absurd number of bins and this taking too long computationally!)
+sig.22 <- sig.thresh.finder(data.22, percents=c(20, 15, 10, 5))
+
+bins.22 <- optimize.bin.sums(coverage.22)
+bins.vec.22 <- unique(sort(c(bins.22$start, bins.22$end)))
+
+# To check that the bins in the tabulation all make sense--they do!
+unique(substr(levels(tab.22$pos1_bin), 15, 18))
 ```
 
 
