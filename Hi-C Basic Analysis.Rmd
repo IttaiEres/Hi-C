@@ -2907,6 +2907,20 @@ indices <- my.sigs[(my.sigs$loc1_bin %in% tmp.overlap$loc1_bin)&(my.sigs$loc2_bi
 indices.test <- my.sigs[(my.sigs$loc1_bin %in% tmp.homer.sig$loc1_bin) & (my.sigs$loc2_bin %in% tmp.homer.sig$loc2_bin),] #This could (and does) accidentally pull out some rows that are not truly matching, but that simply had loc1 match in 1 row and loc2 in another (not the same)
 
 test <- variable.assign(coverage.extractor, "coverage_10kb", c("this is a test", "uh-oh spagghetios"))
+
+##Test it all
+coverage <- fread("/project/gilad/ittai/roach/cis_only_cov_pos/coverage_cis_only/coverage_10kb_5kb.bed", sep="\t", header=FALSE, stringsAsFactors=FALSE, data.table=FALSE)
+colnames(coverage) <- c("chr", "start", "end", "count")
+coverage.Y <- coverage[coverage$chr=="chrY",]
+pos.Y <- fread("/project/gilad/ittai/roach/cis_only_cov_pos/paired_read_midpoint_positions/midpoint.pairs.Y", header=FALSE, stringsAsFactors=FALSE, data.table=FALSE)
+
+contacts.Y <- full.chrom.tabulator(coverage.Y, pos.Y, 0, 100000, 10000, "chrY")
+print(head(contacts.Y))
+print(nrow(contacts.Y))
+
+basic.tab <- basic_tabulation(coverage.Y, pos.Y, 0, 500000)
+print(head(basic.tab))
+print(nrow(basic.tab))
 ```
 
 
