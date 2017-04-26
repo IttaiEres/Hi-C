@@ -38,29 +38,7 @@ setwd("~/Desktop/Hi-C/All_good_analysis/Midway data/full_homer_overlap_dfs")
 data.10 <- fread("full_homer_overlap_df.10kb", header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
 unique(data.10[data.10$dist.bin==10000,]$homer.hits.tot)
 
-data.20 <- fread("~/Desktop/Hi-C/All_good_analysis/Midway data/full_homer_overlap_dfs/full_homer_overlap_df.20kb", header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
-unique(data.20[data.20$dist.bin==20000,]$homer.hits.tot)
 
-data.30 <- fread("~/Desktop/Hi-C/All_good_analysis/Midway data/full_homer_overlap_dfs/full_homer_overlap_df.30kb", header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
-unique(data.30[data.30$dist.bin==5000,]$homer.hits.tot)
-unique(data.30[data.30$dist.bin==10000,]$homer.hits.tot)
-unique(data.30[data.30$dist.bin==15000,]$homer.hits.tot)
-unique(data.30[data.30$dist.bin==20000,]$homer.hits.tot)
-unique(data.30[data.30$dist.bin==25000,]$homer.hits.tot)
-unique(data.30[data.30$dist.bin==30000,]$homer.hits.tot)
-unique(data.30[data.30$dist.bin==35000,]$homer.hits.tot)
-unique(data.30[data.30$dist.bin==40000,]$homer.hits.tot)
-unique(data.30[data.30$dist.bin==45000,]$homer.hits.tot)
-unique(data.30[data.30$dist.bin==50000,]$homer.hits.tot)
-unique(data.30[data.30$dist.bin==55000,]$homer.hits.tot)
-unique(data.30[data.30$dist.bin==60000,]$homer.hits.tot)
-unique(data.30[data.30$dist.bin==65000,]$homer.hits.tot)
-unique(data.30[data.30$dist.bin==70000,]$homer.hits.tot)
-unique(data.30[data.30$dist.bin==75000,]$homer.hits.tot)
-unique(data.30[data.30$dist.bin==80000,]$homer.hits.tot)
-unique(data.30[data.30$dist.bin==85000,]$homer.hits.tot)
-unique(data.30[data.30$dist.bin==90000,]$homer.hits.tot)
-unique(data.30[data.30$dist.bin==95000,]$homer.hits.tot)
 ```
 
 ```{r Functions}
@@ -279,18 +257,19 @@ signif.comparison <- function(chr, full_info, locus_size, percents=c(5, 2.5, 1, 
 
 overlap.visualizer <- function(full_overlap.df, chr){
   
-  full_overlap.df <- full_overlap.df[full_overlap.df$chr==chr,]
+  full_overlap.df <- full_overlap.df[full_overlap.df$chr==chr,] #Subset down to chr.
+  full_overlap.df <- full_overlap.df[full_overlap.df$homer.hits.tot!=0,] #Subset down to just situations where homer has hits!
   full_overlap.df$percentage.of.mine <- (full_overlap.df$overlap/full_overlap.df$my.hits)*100
   full_overlap.df$percentage.of.homer <- (full_overlap.df$overlap/full_overlap.df$homer.hits)*100
   options(warn=-1) #Turn off warnings, not sure why they come up when running this but it doesn't matter.
   
   #First plot percentages of homer-significant hits I pick up on.
-  homer.signifs <- ggplot(full_overlap.df, aes(x=bin, y=percentage.of.homer)) + geom_line(aes(group=variable, color=variable)) + ggtitle(paste("% overlap significant hits with homer for pair distances and threshold percentages,", chr)) + ylab("Percentage of Homer Significant Hits in overlap") + xlab("Pair Distance Bins") + labs(color="Signif. %") #For actually visualizing boxplots of count distributions for different distance bins.
+  homer.signifs <- ggplot(full_overlap.df, aes(x=dist.bin, y=percentage.of.homer, group=percentile, color=factor(percentile))) + geom_line() + ggtitle(paste("Proportion of homer-significant hits called significant,", chr)) + ylab("Percentage of Homer Significant Hits in overlap") + xlab("Pair Distance Bins") #+ labs(color="Signif. %") #For actually visualizing boxplots of count distributions for different distance bins.
   
   print(homer.signifs) #Show the percentages!
   
   #Now, plot percentages of my own findings that each of those overlaps represent
-  my.signifs <- ggplot(full_overlap.df, aes(x=bin, y=percentage.of.mine)) + geom_line(aes(group=variable, color=variable)) + ggtitle(paste("% overlap significant hits with my.method for pair distances and threshold percentages,", chr)) + ylab("Percentage of My Method Hits in overlap") + xlab("Pair Distance Bins") #For actually visualizing boxplots of count distributions for different distance bins.
+  my.signifs <- ggplot(full_overlap.df, aes(x=dist.bin, y=percentage.of.mine, group=percentile, color=factor(percentile))) + geom_line() + ggtitle(paste("Proportion of my.method-significant hits called significant by homer,", chr)) + ylab("Percentage of My Method Hits in overlap") + xlab("Pair Distance Bins") #For actually visualizing boxplots of count distributions for different distance bins.
   
   print(my.signifs)
     
