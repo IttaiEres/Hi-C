@@ -1,0 +1,324 @@
+---
+title: "Yoav Meeting"
+author: "Ittai Eres"
+date: "3/10/2017"
+output: pdf_document
+---
+
+```{r}
+library(plyr)
+library(tidyr)
+library(data.table)
+library(reshape2)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(Hmisc)
+
+#Need to re-do much of the homer overlap df analysis--no point in looking at pairs less than distance of a bin size away (fall into first bin of distances--from 0 to a full bin's length away from each other). If I subset down to only the dist.bins that contain homer hits, this command visualizes quite nicely:
+ggplot(test, aes(x=dist.bin, y=percentage.of.homer, group=percentile, color=factor(percentile))) + geom_line()
+
+setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/full_homer_overlap_dfs")
+data.10kb <- fread("full_homer_overlap_df.10kb", header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+data.10kb$percentage.of.mine <- (data.10kb$overlap/data.10kb$my.hits.tot)*100
+data.10kb$percentage.of.homer <- (data.10kb$overlap/data.10kb$homer.hits.tot)*100
+
+chr1 <- data.10kb[data.10kb$chr=="chr1",]
+
+ggplot(chr1, aes(x=dist.bin, y=percentage.of.homer)) + geom_line(aes(group=factor(percentile), color=factor(percentile)))
+
+overlap.visualizer <- function(full_overlap.df, chr){
+  
+  full_overlap.df <- full_overlap.df[full_overlap.df$chr==chr,] #Subset down to chr.
+  full_overlap.df <- full_overlap.df[full_overlap.df$homer.hits.tot!=0,] #Subset down to just situations where homer has hits!
+  full_overlap.df$percentage.of.mine <- (full_overlap.df$overlap/full_overlap.df$my.hits)*100
+  full_overlap.df$percentage.of.homer <- (full_overlap.df$overlap/full_overlap.df$homer.hits)*100
+  options(warn=-1) #Turn off warnings, not sure why they come up when running this but it doesn't matter.
+  
+  #First plot percentages of homer-significant hits I pick up on.
+  homer.signifs <- ggplot(full_overlap.df, aes(x=dist.bin, y=percentage.of.homer, group=percentile, color=factor(percentile))) + geom_line() + ggtitle(paste("Proportion of homer-significant hits called significant,", chr)) + ylab("Percentage of Homer Significant Hits in overlap") + xlab("Pair Distance Bins") #+ labs(color="Signif. %") #For actually visualizing boxplots of count distributions for different distance bins.
+  
+  print(homer.signifs) #Show the percentages!
+  
+  #Now, plot percentages of my own findings that each of those overlaps represent
+  my.signifs <- ggplot(full_overlap.df, aes(x=dist.bin, y=percentage.of.mine, group=percentile, color=factor(percentile))) + geom_line() + ggtitle(paste("Proportion of my.method-significant hits called significant by homer,", chr)) + ylab("Percentage of My Method Hits in overlap") + xlab("Pair Distance Bins") #For actually visualizing boxplots of count distributions for different distance bins.
+  
+  print(my.signifs)
+    
+    options(warn=0) #Turn warnings back on so as not to mess with anything else.
+}
+for(chr in genome){overlap.visualizer(data.10kb, chr)}
+```
+
+
+
+
+```{r grab everything, include=FALSE}
+library(plyr)
+library(tidyr)
+library(data.table)
+library(reshape2)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(Hmisc)
+
+setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/full_homer_overlap_dfs")
+data.10kb <- fread("full_homer_overlap_df.10kb", header=TRUE, stringsAsFactors = FALSE)
+data.10kb <- fread("full_homer_overlap_df.10kb", header=TRUE, stringsAsFactors = FALSE)
+
+setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/signif_comparisons")
+overlap.10kb.GW <- fread("full_signif.10kb", header=TRUE, stringsAsFactors = FALSE)
+overlap.10kb.GW$chr <-c(rep("chr1", 205), rep("chr2", 205), rep("chr3", 205), rep("chr4", 205), rep("chr5", 205), rep("chr6", 205), rep("chr7", 205), rep("chr8", 205), rep("chr9", 205), rep("chr10", 205), rep("chr11", 205), rep("chr12", 205), rep("chr13", 205), rep("chr14", 205), rep("chr15", 205), rep("chr16", 205), rep("chr17", 205), rep("chr18", 205), rep("chr19", 205), rep("chr20", 205), rep("chr21", 205), rep("chr22", 205), rep("chrX", 205), rep("chrY", 130))
+
+# overlap.20kb.GW <- fread("full_signif.20kb", header=TRUE, stringsAsFactors = FALSE)
+# overlap.30kb.GW <- fread("full_signif.30kb", header=TRUE, stringsAsFactors = FALSE)
+# overlap.40kb.GW <- fread("full_signif.40kb", header=TRUE, stringsAsFactors = FALSE)
+
+genome <- c("chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20", "chr21", "chr22", "chrX", "chrY")
+
+#Simple function that finds the sets of bins in each block of reads that will yield the greatest sum of reads, regardless of read inclusion.
+optimize.bin.sums <- function(coverage_df){
+  
+   #define some necessary variables based on the coverage df; initiliaze some variables
+  bin.size <- coverage_df$end[1]-coverage_df$start[1]
+  window.slide <- coverage_df$start[2]-coverage_df$start[1]
+  index.slide <- (bin.size/window.slide) #obtain the value for how many indices to slide forward for the sliding window!
+  loc.index <- 1 #initialize an index for moving through the coverage_df
+  coverage_df$bin <- 0 #intiailize another column in the coverage_df storing whether a given range ends up being a bin (1 for yes)
+  
+  while(loc.index<=nrow(coverage_df)){#iterate through all the positions in the coverage df
+    
+    if(coverage_df$count[loc.index]==0){ #move on to the next index if the given row has no reads in that bin--it's irrelevant.
+      loc.index <- loc.index+1 #increment the index
+      next}# move on to iterate this while loop again
+    
+    #If we see a switch from 0 to >0, the window has slid to include a new read in it. First, define the full range of the reads we can find here:
+    end.index <- loc.index + match(0, coverage_df$count[loc.index:nrow(coverage_df)])-2 #pulls out just b/f the first instance of 0 in the count column--i.e. end.index is the last index at which a non-zero value is found
+    tmp.indices <- seq(loc.index, end.index, index.slide) #grab first set of possible bins from this read region
+    tmp.max <- sum(coverage_df$count[tmp.indices]) #store the sum of the read counts from this set as the temporary maximum
+    tmp.max.indices <- tmp.indices #initialize the tmp.max.indices variable with these first indices, for proper bin assignation after the loop
+    
+    #Include something here to deal with the case when the initial tmp.indices is only a single element? I.e. where a region doesn't have options?
+    #Check on the other regions where this is happening--the issue might not be that, but, rather, that there are ties!
+    
+    while(head(tmp.indices, 1)<=(loc.index+index.slide-1)){#keep going until we've considered all the possible bin combinations in this block of reads--check by stopping if the first value in tmp.indices is greater than index.slide above the loc.index
+      tmp.indices <- tmp.indices + 1 #increment to look at the next set of bins
+      tmp.indices <- tmp.indices[which(tmp.indices<=end.index)] #get rid of indices in tmp.indices that go past the end.index (i.e. move into other read blocks that are separated by a 0!)
+      
+      if(!length(tmp.indices)){break} #If tmp.indices turns into an empty vector (cases where there are not multiple options for bin combos), break this loop and move on (not gonna get higher tmp.max).
+      
+      if(sum(coverage_df$count[tmp.indices])>tmp.max){#If we have found a new way to maximize total read count in a bin set,
+        tmp.max.indices <- tmp.indices #store these given indices in the tmp.max.indices variable, for bin assignation after the loop
+        tmp.max <- sum(coverage_df$count[tmp.indices]) #make this the new tmp.max
+      }
+    }
+    coverage_df$bin[tmp.max.indices] <- 1 #assign a status of being a chosen bin to the indices that gave us the max sum!
+    loc.index <- tail(tmp.max.indices, 1)+index.slide #Move the loc index to the next possible bin after the chosen set (tmp.max.indices)
+  }
+  return(coverage_df[which(coverage_df$bin==1),-5]) #return a df of all the bins and their counts. minus the "bin" column
+}
+
+#A function that tabulates the frequency of contact between different bins on a position dataframe.
+basic_tabulation <- function(coverage_df, pos_df, distance1, distance2){
+  colnames(pos_df) <- c("pos1", "pos2") #ensure the column names of the pos_df work with the next lines
+  
+  pos1_new <- ifelse(pos_df$pos1<pos_df$pos2, pos_df$pos1, pos_df$pos2) #reorders columns so pos1 < pos2. important for not repeating bin pairs
+  pos2_new <- ifelse(pos_df$pos1<pos_df$pos2, pos_df$pos2, pos_df$pos1) #If true, returns second arg; if false, returns third.
+  pos_df$pos1 <- pos1_new #assignation of the new columns
+  pos_df$pos2 <- pos2_new #assignation of the new columns
+  
+  pos_df$diff <- abs(pos_df$pos1-pos_df$pos2) #make a third column--the difference between the first two
+  pos_df <- pos_df[pos_df$diff<(distance2)&pos_df$diff>=(distance1),1:2] #pull out pairs in the given distance range
+  
+  if(nrow(pos_df)>0){#If we've found pairs at the given distance, tabulate contact counts!
+    
+    bins.df <- optimize.bin.sums(coverage_df)
+    bins.vec <- unique(sort(c(bins.df$start, bins.df$end))) #Pulls out the vector of bins for the given chromosome at given bin size.
+  
+    pos_df <- pos_df %>% mutate(pos1_bin = cut2(pos1, bins.vec, onlycuts=TRUE, oneval=FALSE, digits=9)) %>% mutate(pos2_bin = cut2(pos2, bins.vec, onlycuts=TRUE, oneval=FALSE, digits=9)) #make two new columns in the pos_df, with bin assignments for pos1 and pos2
+    pos_df %>% group_by(pos1_bin, pos2_bin) %>% summarise(count=n()) #tabulate the bin contacts that are repeated to find total bin-bin contacts
+  }
+  else(return(0))#print("No contacts at that distance on this chromosome!"))
+}
+
+#Creates a massive long-form dataframe containing information on count, mean, locus 1 and locus 2, and chromosome for each distance bin--called on individual chromosomes at a time.
+full.chrom.tabulator <- function(coverage_df, pos_df, start, end, by, chr){
+  distances <- seq(start, end, by) #Get the set of distances being looked at
+  tabulation.list <- vector("list", length(distances)) #Initialize a blank list of length distances to store dfs of contact count dist'ns for different distance bins in.
+  for(distance in 1:length(distances)){ #Iterate through all the user-input distances
+    if(is.null(nrow(basic_tabulation(coverage_df, pos_df, distances[distance], distances[distance]+by)))){next} #Check that there are contacts at that distance on this chromosome. If not, move on.
+    tmp.table <- basic_tabulation(coverage_df, pos_df, distances[distance], distances[distance]+by) #If contacts found, tabulate!
+    tabulation.list[[distance]] <- data.frame(chr=chr,  bin=distances[distance], loc1=tmp.table$pos1_bin, loc2=tmp.table$pos2_bin, count=tmp.table$count) #Put a data frame with all the info about contacts at this distance into the list
+  }
+  tabulation.df <- do.call(rbind, tabulation.list) #Combine all the lists into a single long-form dataframe.
+  return(tabulation.df)
+}
+
+chrom.visualizer <- function(full_tab_df, chr){
+  
+  full_tab_df <- full_tab_df[full_tab_df$chr==chr,]
+  options(warn=-1) #Turn off warnings, not sure why they come up when running this but it doesn't matter.
+  
+  p <- ggplot(full_tab_df, aes(x=bin, y=count)) + geom_boxplot(aes(group=bin)) + ggtitle(paste("Distributions of Contact Counts for Pairs at Various Distances,", unique(full_tab_df$chr))) + ylab("Contact Count (Reads)") + xlab("Pair Distance Bins") #For actually visualizing boxplots of count distributions for different distance bins.
+  
+  print(p) #Show that set of boxplots!
+  
+  distances <- unique(full_tab_df$bin) #Grab all the distance bins.
+  spacing <- (distances[2]-distances[1])/1000 #Calculate the spacing between distance bins (for titles of histograms)
+  
+  for(bin in distances){ #Make and print individual histograms for each of the different distance bins!
+    if(nrow(full_tab_df[full_tab_df$bin==bin,])==0){next}
+    else{
+      #print(bin) for some reason this made it all work at one point...but the error received (" Error in grid.Call.graphics(L_setviewport, vp, TRUE) : non-finite location and/or size for viewport ")...appears to come up sporadically, and not consistently for any reason
+      print(qplot(full_tab_df[full_tab_df$bin==bin,5], geom="histogram", binwidth=1, xlab="Contact Count (Reads)", ylab="Frequency", main=paste("Histogram of Contact Counts for Pairs", bin/1000, "to", (bin/1000)+spacing, "kb apart,", chr)))
+    }
+    
+    options(warn=0) #Turn warnings back on so as not to mess with anything else.
+  }
+}
+
+#Function to obtain the values that represent the contact count # threshold for the top 'percents' of each distribution.
+sig.thresh.finder <- function(full_tab_df, percents){
+
+  bins <- unique(full_tab_df$bin) #Grab the bins
+  percents <- percents*.01 #Re-scale the percents to work with quantile in the loop below.
+  
+  values.df <- data.frame(matrix(nrow=length(bins), ncol=length(percents))) #Initialize the df to be returned
+  colnames(values.df) <- percents #Initialize the df's colnames for iterating through
+  rownames(values.df) <- bins #Initialize the df's rownames for iterating through
+  
+  #Remove rows that are duplicate bins with each other!
+  characters <- (unique(nchar(as.character(full_tab_df$loc1)))-3)/2
+  start1 <- as.numeric(substr(as.character(full_tab_df$loc1), 2, characters+1))
+  start2 <- as.numeric(substr(as.character(full_tab_df$loc2), 2, characters+1))
+  full_tab_df <- full_tab_df[-which(start1==start2),]
+  
+  for(bin in bins){
+    for(percent in percents){
+      values.df[as.character(bin), as.character(percent)] <- quantile(full_tab_df$count[full_tab_df$bin==bin], 1-percent)[[1]]#To pull out the value above which are the top percent % of loci
+    }
+  }
+  return(values.df)
+}
+
+#Function that takes a homer file, a specified chromosome, and a full_tab_df for a given locus size to produce a matrix of significant hit overlaps b/t my data and homer data at a variety of bin distances and percentages.
+signif.comparison <- function(homer.file, chr, full_info, locus_size, percents=c(5, 2.5, 1, 0.5, 0.1)){
+  #Subset down the full data frame info to the chromosome of interest.
+  chr_df <- full_info[full_info$chr==chr,]
+  colnames(chr_df) <- c("chr", "bin", "loc1_bin", "loc2_bin", "count") #Important for proper functioning of call to merge() later on.
+  
+  #Obtain the bins for assigning bins to homer paired loci.
+  characters <- (unique(nchar(as.character(chr_df$loc1)))-3)/2
+  chr.bins <- unique(sort(c(as.numeric(substr(chr_df$loc1, 2, characters+1)), as.numeric(substr(chr_df$loc1, characters+3, 2*characters+2)), as.numeric(substr(chr_df$loc2, 2, characters+1)), as.numeric(substr(chr_df$loc2, characters+3, 2*characters+2)))))
+
+  #Read in the pos.file for the given chromosome. Represent midpoints of read positions from BAM file, paired.
+  setwd("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/cis_only/paired_read_midpoint_positions")
+  pos.df <- fread(paste("midpoint.pairs.", substr(chr, 4, nchar(chr)), sep=""), header=FALSE, stringsAsFactors = FALSE)
+  
+  #Get a data frame of the values above which we would consider hits "significant" in the different distance bins.
+  sig.values <- sig.thresh.finder(chr_df, percents)
+  
+  #Initialize the final long-form data frame containing all information at the end. Add blank columns to be filled.
+  final_df <- melt(sig.values)
+  final_df$bin <- rep(rownames(sig.values), nrow(final_df)/length(rownames(sig.values))) #Make sure to add the bins on as a column.
+  final_df$my.hits <- 0
+  final_df$homer.hits <- 0
+  final_df$overlap <- 0
+  
+  #Read in homer file, change column names to work with next lines
+  setwd(paste("/Users/ittaieres/Desktop/Hi-C/All_good_analysis/homer.signif/sig_", locus_size, "kb", sep=""))
+  homer.sig <- fread(homer.file, header=TRUE, stringsAsFactors = FALSE)
+  colnames(homer.sig) <- c("start1", "end1", "start2", "end2")
+  
+  ##Reformat the homer file to be easier to work with for matching hereafter.
+  start1_new <- ifelse(homer.sig$start1<homer.sig$start2, homer.sig$start1, homer.sig$start2) #reorders columns so pos1 < pos2. important for not repeating bin pairs
+  start2_new <- ifelse(homer.sig$start1<homer.sig$start2, homer.sig$start2, homer.sig$start1) #If true, returns second arg; if false, returns third.
+  end1_new <-ifelse(homer.sig$start1<homer.sig$start2, homer.sig$end1, homer.sig$end2)
+  end2_new <- ifelse(homer.sig$start1<homer.sig$start2, homer.sig$end2, homer.sig$end1)
+  
+  #Assign the new columns.
+  homer.sig$start1 <- start1_new
+  homer.sig$start2 <- start2_new
+  homer.sig$end1 <- end1_new
+  homer.sig$end2 <- end2_new
+  
+  #Get individual locations as midpoints of loci identified as significant by homer, so I can assign them to my set of bins for the given chr.
+  homer.sig$loc1 <- rowMeans(homer.sig[,1:2]) #Get midpoint of start1 and end1, for loc1
+  homer.sig$loc2 <- rowMeans(homer.sig[,3:4]) #Same for loc2 (start2 and end2)
+  
+  #Get another column that is distance between the two loci, for subsetting down later on.
+  homer.sig$distance <- abs(homer.sig$loc1-homer.sig$loc2)
+  
+  #Assign the individual locations of homer-significant loci to my set of bins for the given chr.
+  homer.sig <- homer.sig %>% mutate(loc1_bin=cut2(loc1, chr.bins, onlycuts=TRUE, oneval=FALSE, digits=9)) %>% mutate(loc2_bin=cut2(loc2, chr.bins, onlycuts=TRUE, oneval=FALSE, digits=9))
+  
+  #Subset down to just the pairs of significant hits bins from the homer data.
+  homer.sig <- homer.sig[,-1:-6] #Gets rid of columns 1-6, column 7 with distance between loci and columns 8 and 9 with position bin assignations are all that matter.
+  
+  #Grab the distance between bins quickly.
+  slide <- as.numeric(unique(chr_df$bin)[2]-unique(chr_df$bin)[1])
+  
+  #Iterate across the significance threshold data frame, replacing threshold count values with percentage overlap with homer significant hits.
+  for(bin in rownames(sig.values)){
+  	for(percent in colnames(sig.values)){
+  		tmp.my.sigs <- chr_df[(chr_df$bin==bin)&((chr_df$count)>=(sig.values[bin, percent])), 3:4] #Pull out df of my sig hits for this bin and percentage.
+  		tmp.homer.sigs <- homer.sig[(homer.sig$distance)>=(as.numeric(bin))&(homer.sig$distance)<(as.numeric(bin)+slide), 2:3] #Same for homer's significant hits.
+  		
+  		final_df[final_df$bin==bin&final_df$variable==percent,4] <- nrow(tmp.my.sigs) #Assign number of my hits found.
+  		final_df[final_df$bin==bin&final_df$variable==percent,5] <- nrow(tmp.homer.sigs) #Assign number of homer hits found.
+  		final_df[final_df$bin==bin&final_df$variable==percent,6] <- nrow(merge(tmp.my.sigs, tmp.homer.sigs)) #Assign overlapping hits!
+  		}
+  }
+  return(final_df)
+}
+
+overlap.visualizer <- function(full_overlap.df, chr){
+  
+  full_overlap.df <- full_overlap.df[full_overlap.df$chr==chr,]
+  full_overlap.df$percentage.of.mine <- (full_overlap.df$overlap/full_overlap.df$my.hits)*100
+  full_overlap.df$percentage.of.homer <- (full_overlap.df$overlap/full_overlap.df$homer.hits.tot)*100
+  options(warn=-1) #Turn off warnings, not sure why they come up when running this but it doesn't matter.
+  
+  #First plot percentages of homer-significant hits I pick up on.
+  homer.signifs <- ggplot(full_overlap.df, aes(x=dist.bin, y=percentage.of.homer)) + geom_line(aes(group=percentile, color=percentile)) + ggtitle(paste("% overlap significant hits with homer for pair distances and threshold percentages,", chr)) + ylab("Percentage of Homer Significant Hits in overlap") + xlab("Pair Distance Bins") + labs(color="Signif. %") #For actually visualizing boxplots of count distributions for different distance bins.
+  
+  print(homer.signifs) #Show the percentages!
+  
+  #Now, plot percentages of my own findings that each of those overlaps represent
+  my.signifs <- ggplot(full_overlap.df, aes(x=dist.bin, y=percentage.of.mine)) + geom_line(aes(group=percentile, color=percentile)) + ggtitle(paste("% overlap significant hits with my.method for pair distances and threshold percentages,", chr)) + ylab("Percentage of My Method Hits in overlap") + xlab("Pair Distance Bins") #For actually visualizing boxplots of count distributions for different distance bins.
+  
+  print(my.signifs)
+    
+    options(warn=0) #Turn warnings back on so as not to mess with anything else.
+}
+```
+
+
+
+```{r Analysis}
+###10kb Analysis--chromosome by chromosome, first showing chromosomal boxplot distributions for different distance bins and the corresponding histograms, then visualizing the percentage overlap with homer-significant hits.
+for(chr in genome){
+  #chrom.visualizer(tab_df.10kb.full, chr)
+  overlap.visualizer(data.10kb, chr)
+}
+
+###20kb Analysis--chromosome by chromosome, first showing chromosomal boxplot distributions for different distance bins and the corresponding histograms, then visualizing the percentage overlap with homer-significant hits.
+# for(chr in genome){
+#   chrom.visualizer(tab_df.20kb.full, chr)
+#   overlap.visualizer(overlap.20kb.GW, chr)
+# }
+# 
+# ###30kb Analysis--chromosome by chromosome, first showing chromosomal boxplot distributions for different distance bins and the corresponding histograms, then visualizing the percentage overlap with homer-significant hits.
+# for(chr in genome){
+#   chrom.visualizer(tab_df.30kb.full, chr)
+#   overlap.visualizer(overlap.30kb.GW, chr)
+# }
+# 
+# ###40kb Analysis--chromosome by chromosome, first showing chromosomal boxplot distributions for different distance bins and the corresponding histograms, then visualizing the percentage overlap with homer-significant hits.
+# for(chr in genome){
+#   chrom.visualizer(tab_df.40kb.full, chr)
+#   overlap.visualizer(overlap.40kb.GW, chr)
+# }
+```
+
