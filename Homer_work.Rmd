@@ -1,0 +1,1353 @@
+---
+title: "Homer_work"
+author: "Ittai Eres"
+date: "4/13/2017"
+output: html_document
+---
+
+```{r Homersig results function that creates a vector with all the significant hits' normalized contact counts}
+library(plyr)
+library(tidyr)
+library(data.table)
+library(reshape2)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(Hmisc)
+library(gplots)
+library(stringr)
+library(heatmaply)
+
+ortho.matrix.indiv.extractor <- function(sigdf, res, mat.type, line, species, outdir){
+  
+  #For the given line, iterate through chromosomes, loading the appropriate chromosome matrix and populating the sigdf with the appropriate values from it.
+  if(species=="H"){
+    #Humans!
+    for(chromosome in unique(sigdf$Hchr)){
+      
+      #Subset down to just the chromosome of interest in the significant hits df
+      sig.df.tmp <- sigdf[which(sigdf$Hchr==chromosome),]
+      
+      #Load in the homer matrix for the line and appropriate chromosome; reformat it properly.
+      homer.tmp <- fread(paste("/project2/gilad/ittai/HiC", line, "homer", paste(res, "kb", sep=""), mat.type, paste(line, chromosome, mat.type, sep="_"), sep="/"), data.table=FALSE)
+      rownames(homer.tmp) <- colnames(homer.tmp)[-1:-2]
+      
+      #Create vectors of rownumbers and colnumbers of the homer matrix and name them appropriately.
+      row_num <- 1:nrow(homer.tmp)
+      col_num <- 1:nrow(homer.tmp)
+      names(row_num) <- rownames(homer.tmp)
+      names(col_num) <- rownames(homer.tmp)
+      
+      #Filter the rownum and colnum vectors by name to only contain the elements from the sig.df.tmp.
+      filt.rownum <- row_num[sig.df.tmp$H1]
+      filt.colnum <- col_num[sig.df.tmp$H2]
+      
+      #Combine rownum and colnum filtered vectors to get a matrix of indices to look into in the homer file
+      index.mat <- cbind(filt.rownum, filt.colnum+2) #Add 2 to filt.colnum to account for leading 2 columns in homer file
+      
+      #Add a new column to the sigdf for the values from this line; assign sigdf values for the line to that column from its chromosomal respective homer matrix by indexing into them with index.mat
+      sigdf[which(sigdf$Hchr==chromosome),line] <- homer.tmp[index.mat]
+    }
+  }
+  
+  if(species=="C"){
+    #Chimps!
+    for(chromosome in unique(sigdf$Cchr)){
+      
+      #Subset down to just the chromosome of interest in the significant hits df
+      sig.df.tmp <- sigdf[which(sigdf$Cchr==chromosome),]
+      
+      #Load in the homer matrix for the line and appropriate chromosome; reformat it properly.
+      homer.tmp <- fread(paste("/project2/gilad/ittai/HiC", line, "homer", paste(res, "kb", sep=""), mat.type, paste(line, chromosome, mat.type, sep="_"), sep="/"), data.table=FALSE)
+      rownames(homer.tmp) <- colnames(homer.tmp)[-1:-2]
+      
+      #Create vectors of rownumbers and colnumbers of the homer matrix and name them appropriately.
+      row_num <- 1:nrow(homer.tmp)
+      col_num <- 1:nrow(homer.tmp)
+      names(row_num) <- rownames(homer.tmp)
+      names(col_num) <- rownames(homer.tmp)
+      
+      #Filter the rownum and colnum vectors by name to only contain the elements from the sig.df.tmp.
+      filt.rownum <- row_num[sig.df.tmp$C1]
+      filt.colnum <- col_num[sig.df.tmp$C2]
+      
+      #Combine rownum and colnum filtered vectors to get a matrix of indices to look into in the homer file
+      index.mat <- cbind(filt.rownum, filt.colnum+2) #Add 2 to filt.colnum to account for leading 2 columns in homer file
+      
+      #Add a new column to the sigdf for the values from this line; assign sigdf values for the line to that column from its chromosomal respective homer matrix by indexing into them with index.mat
+      sigdf[which(sigdf$Cchr==chromosome),line] <- homer.tmp[index.mat]
+    }
+  }
+   write.table(sigdf, file=paste(outdir, "var", line, res, "kb.sig.", mat.type, sep=""), col.names = TRUE, row.names=FALSE, quote=FALSE, sep="\t")
+}
+```
+
+```{r Making heatmaps from homer sig ortho results}
+install.packages("heatmaply")
+library(heatmaply)
+
+###Observations: decent number of NA rows, all seem to represent hits where ortho liftover made one of the sides of a pair on a different chromosome.
+finalvar <- fread("~/Desktop/final.all.var.all.info", stringsAsFactors = FALSE, header=TRUE, data.table=FALSE)
+
+#Need to summarize some of this info for it to be relevant at all, and to make easier to manipulate. Get a single column for Hsize1, Hsize2, Csize1, Csize2, Hdist, Cdist.
+finalvar$Hsize1mean <- rowMeans(finalvar[,c("Hsize1-A", "Hsize1-B", "Hsize1-E", "Hsize1-F", "Hsize1-C", "Hsize1-D", "Hsize1-G", "Hsize1-H")], na.rm=TRUE)
+finalvar$Hsize2mean <- rowMeans(finalvar[,c("Hsize2-A", "Hsize2-B", "Hsize2-E", "Hsize2-F", "Hsize2-C", "Hsize2-D", "Hsize2-G", "Hsize2-H")], na.rm=TRUE)
+finalvar$Csize1mean <- rowMeans(finalvar[,c("Csize1-A", "Csize1-B", "Csize1-E", "Csize1-F", "Csize1-C", "Csize1-D", "Csize1-G", "Csize1-H")], na.rm=TRUE)
+finalvar$Csize2mean <- rowMeans(finalvar[,c("Csize2-A", "Csize2-B", "Csize2-E", "Csize2-F", "Csize2-C", "Csize2-D", "Csize2-G", "Csize2-H")], na.rm=TRUE)
+finalvar$Hdistmean <- rowMeans(finalvar[,c("Hdist-A", "Hdist-B", "Hdist-E", "Hdist-F", "Hdist-C", "Hdist-D", "Hdist-G", "Hdist-H")], na.rm=TRUE)
+finalvar$Cdistmean <- rowMeans(finalvar[,c("Cdist-A", "Cdist-B", "Cdist-E", "Cdist-F", "Cdist-C", "Cdist-D", "Cdist-G", "Cdist-H")], na.rm=TRUE)
+finalvar$normcountmean <- rowMeans(finalvar[,c("A-21792_norm", "B-28126_norm", "C-3649_norm", "D-40300_norm", "E-28815_norm", "F-28834_norm", "G-3624_norm", "H-3651_norm")], na.rm=TRUE)
+finalvar$interactionreads <- rowMeans(finalvar[,c("Interaction_Reads-A", "Interaction_Reads-B", "Interaction_Reads-C", "Interaction_Reads-D", "Interaction_Reads-E", "Interaction_Reads-F", "Interaction_Reads-G", "Interaction_Reads-H")], na.rm=TRUE)
+
+var.size25000.plus <- which(finalvar$Hsize1mean>=25000&finalvar$Hsize2mean>=25000&finalvar$Csize1mean>=25000&finalvar$Csize2mean>=25000)
+var.size25000.only <- which(finalvar$Hsize1mean==25000&finalvar$Hsize2mean==25000&finalvar$Csize1mean==25000&finalvar$Csize2mean==25000)
+var.size24000.plus <- which(finalvar$Hsize1mean>=24000&finalvar$Hsize2mean>=24000&finalvar$Csize1mean>=24000&finalvar$Csize2mean>=24000)
+var.size23000.plus <- which(finalvar$Hsize1mean>=23000&finalvar$Hsize2mean>=23000&finalvar$Csize1mean>=23000&finalvar$Csize2mean>=23000)
+var.size22500.plus <- which(finalvar$Hsize1mean>=22500&finalvar$Hsize2mean>=22500&finalvar$Csize1mean>=22500&finalvar$Csize2mean>=22500)
+
+var.dist1000bp <- (which(abs(finalvar$Hdistmean-finalvar$Cdistmean)<1000))
+
+
+var.dist.5bin <- (which(abs(finalvar$Hdistmean-finalvar$Cdistmean)<12500))
+var.dist1bin <- (which(abs(finalvar$Hdistmean-finalvar$Cdistmean)<25000))
+var.dist2bin <- (which(abs(finalvar$Hdistmean-finalvar$Cdistmean)<50000))
+var.dist.above2bin <- (which(abs(finalvar$Hdistmean-finalvar$Cdistmean)>50000))
+
+#Pull out indices for which 10% of the human distance is less than 25kb.
+humdistindices <- which((0.1*finalvar$Hdistmean)<=25000)
+Hvar.dist.thresh10per <- which(abs(finalvar$Hdistmean[humdistindices]-finalvar$Cdistmean[humdistindices])<=(0.1*finalvar$Hdistmean[humdistindices])) #Only chimp pairs w/in 10% of human pair distance.
+Hvar.dist.thresh25kb <- which(abs(finalvar$Hdistmean[-humdistindices]-finalvar$Cdistmean[-humdistindices])<=25000) #Only chimp pairs w/in 25kb of human pair distance for the human distances that are greater than 250kb.
+
+#Pull out indices for which 10% of the chimp distance is less than 25kb.
+chimpdistindices <- which((0.1*finalvar$Cdistmean)<=25000)
+Cvar.dist.thresh10per <- which(abs(finalvar$Hdistmean[chimpdistindices]-finalvar$Cdistmean[chimpdistindices])<=(0.1*finalvar$Cdistmean[chimpdistindices])) #Only chimp pairs w/in 10% of human pair distance.
+Cvar.dist.thresh25kb <- which(abs(finalvar$Hdistmean[-chimpdistindices]-finalvar$Cdistmean[-chimpdistindices])<=25000) #Only chimp pairs w/in 25kb of human pair distance for the human distances that are greater than 250kb.
+
+#Pull out indices for which 10% of the minimum distance (either H or C) is less than 25kb.
+distindices <- which(0.1*(pmin(finalvar$Cdistmean, finalvar$Hdistmean))<=25000)
+var.dist.thresh10per <- which(abs(finalvar$Hdistmean[distindices]-finalvar$Cdistmean[distindices])<=(0.1*pmin(finalvar$Hdistmean[distindices], finalvar$Cdistmean[distindices])))
+var.dist.thresh25kb <- which(abs(finalvar$Hdistmean[-distindices]-finalvar$Cdistmean[-distindices])<=25000)
+
+var.TSS <- which(finalvar$hTSS==1&finalvar$cTSS==1)
+boxplot(finalvar[,356:363], horizontal=TRUE, xlab="Normalized Interaction Frequency", names=c("HF", "HM", "CM", "CF", "HM", "HF", "CM", "CF"))
+
+top.50.full <- which(abs(finalvar$normcountmean)>=0.902425) #quantile(abs(finalvar$normcountmean), 0.5)
+top.50.base <- which(finalvar$normcountmean>=0.9019025) #quantile(finalvar$normcountmean, 0.5)
+top.75.base <- which(finalvar$normcountmean>=1.296263)
+top.90.base <- which(finalvar$normcountmean>=1.623875)
+mid.50 <- which(finalvar$normcountmean<=1.2962625&finalvar$normcountmean>=0.5017000)
+
+corMid <- cor(finalvar[mid.50, 356:363], use="complete.obs", method="pearson")
+colnames(corMid) <- mynames
+rownames(corMid) <- mynames
+setwd("~/Desktop/corrs")
+heatmaply(corMid, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.mid.html", margins=c(50, 50))
+
+corHdist <- cor(finalvar[c(Hvar.dist.thresh10per, Hvar.dist.thresh25kb), 356:363], use="complete.obs", method="pearson")
+colnames(corHdist) <- mynames
+rownames(corHdist) <- mynames
+
+corCdist <- cor(finalvar[c(Cvar.dist.thresh10per, Cvar.dist.thresh25kb), 356:363], use="complete.obs", method="pearson")
+colnames(corCdist) <- mynames
+rownames(corCdist) <- mynames
+
+cordist <- cor(finalvar[c(var.dist.thresh10per, var.dist.thresh25kb), 356:363], use="complete.obs", method="pearson")
+colnames(cordist) <- mynames
+rownames(cordist) <- mynames
+
+corTSS <- cor(finalvar[var.TSS, 356:363], use="complete.obs", method="pearson")
+colnames(corTSS) <- mynames
+rownames(corTSS) <- mynames
+setwd("~/Desktop/corrs")
+heatmaply(corTSS, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.TSS.html", margins=c(50, 50))
+
+cornoTSS <- cor(finalvar[-var.TSS, 356:363], use="complete.obs", method="pearson")
+colnames(cornoTSS) <- mynames
+rownames(cornoTSS) <- mynames
+setwd("~/Desktop/corrs")
+heatmaply(cornoTSS, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.noTSS.html", margins=c(50, 50))
+
+
+
+
+
+top.50.inter <- which(finalvar$interactionreads>=12) #quantile(finalvar$interactionreads, 0.5)
+
+#Columns with read count vals are 356:363
+
+mynames <- c("A_HF", "B_HM", "C_CM", "D_CF", "E_HM", "F_HF", "G_CM", "H_CF")
+
+corsize25plus <- cor(finalvar[var.size25000.plus,356:363], use="complete.obs", method="pearson")
+colnames(corsize25plus) <- mynames
+rownames(corsize25plus) <- mynames
+
+corsize25plus.50 <- cor(finalvar[var.size25000.plus[which(var.size25000.plus%in%top.50.full)],356:363], use="complete.obs", method="pearson")
+colnames(corsize25plus.50) <- mynames
+rownames(corsize25plus.50) <- mynames
+
+corsize25 <- cor(finalvar[var.size25000.only,356:363], use="complete.obs", method="pearson")
+colnames(corsize25) <- mynames
+rownames(corsize25) <- mynames
+
+corsize25.50 <- cor(finalvar[var.size25000.only[which(var.size25000.only%in%top.50.full)],356:363], use="complete.obs", method="pearson")
+colnames(corsize25.50) <- mynames
+rownames(corsize25.50) <- mynames
+
+corsize24plus <- cor(finalvar[var.size24000.plus,356:363], use="complete.obs", method="pearson")
+colnames(corsize24plus) <- mynames
+rownames(corsize24plus) <- mynames
+
+corsize24plus.50 <- cor(finalvar[var.size24000.plus[which(var.size24000.plus%in%top.50.full)],356:363], use="complete.obs", method="pearson")
+colnames(corsize24plus.50) <- mynames
+rownames(corsize24plus.50) <- mynames
+
+corsize23plus <- cor(finalvar[var.size23000.plus,356:363], use="complete.obs", method="pearson")
+colnames(corsize23plus) <- mynames
+rownames(corsize23plus) <- mynames
+
+corsize23plus.50 <- cor(finalvar[var.size23000.plus[which(var.size23000.plus%in%top.50.full)],356:363], use="complete.obs", method="pearson")
+colnames(corsize23plus.50) <- mynames
+rownames(corsize23plus.50) <- mynames
+
+corsize22plus <- cor(finalvar[var.size22500.plus,356:363], use="complete.obs", method="pearson")
+colnames(corsize22plus) <- mynames
+rownames(corsize22plus) <- mynames
+
+corsize22plus.50 <- cor(finalvar[var.size22500.plus[which(var.size22500.plus%in%top.50.full)],356:363], use="complete.obs", method="pearson")
+colnames(corsize22plus.50) <- mynames
+rownames(corsize22plus.50) <- mynames
+
+cordist1000 <- cor(finalvar[var.dist1000bp, 356:363], use="complete.obs", method="pearson")
+cordist1000.50 <- cor(finalvar[var.dist1000bp[which(var.dist1000bp%in%top.50.full)], 356:363], use="complete.obs", method="pearson")
+colnames(cordist1000) <- mynames
+rownames(cordist1000) <- mynames
+colnames(cordist1000.50) <- mynames
+rownames(cordist1000.50) <- mynames
+
+cordist.5bin <- cor(finalvar[var.dist.5bin, 356:363], use="complete.obs", method="pearson")
+cordist.5bin.50 <- cor(finalvar[var.dist.5bin[which(var.dist.5bin%in%top.50.full)], 356:363], use="complete.obs", method="pearson")
+colnames(cordist.5bin) <- mynames
+rownames(cordist.5bin) <- mynames
+colnames(cordist.5bin.50) <- mynames
+rownames(cordist.5bin.50) <- mynames
+
+cordist.1bin <- cor(finalvar[var.dist1bin, 356:363], use="complete.obs", method="pearson")
+cordist.1bin.50 <- cor(finalvar[var.dist1bin[which(var.dist1bin%in%top.50.full)], 356:363], use="complete.obs", method="pearson")
+colnames(cordist.1bin) <- mynames
+rownames(cordist.1bin) <- mynames
+colnames(cordist.1bin.50) <- mynames
+rownames(cordist.1bin.50) <- mynames
+
+cordist.2bin <- cor(finalvar[var.dist2bin, 356:363], use="complete.obs", method="pearson")
+cordist.2bin.50 <- cor(finalvar[var.dist2bin[which(var.dist2bin%in%top.50.full)], 356:363], use="complete.obs", method="pearson")
+colnames(cordist.2bin) <- mynames
+rownames(cordist.2bin) <- mynames
+colnames(cordist.2bin.50) <- mynames
+rownames(cordist.2bin.50) <- mynames
+
+cordist.2upbin <- cor(finalvar[var.dist.above2bin, 356:363], use="complete.obs", method="pearson")
+cordist.2upbin.50 <- cor(finalvar[var.dist.above2bin[which(var.dist.above2bin%in%top.50.full)], 356:363], use="complete.obs", method="pearson")
+colnames(cordist.2upbin) <- mynames
+rownames(cordist.2upbin) <- mynames
+colnames(cordist.2upbin.50) <- mynames
+rownames(cordist.2upbin.50) <- mynames
+
+corTSS <- cor(finalvar[var.TSS, 356:363], use="complete.obs", method="pearson")
+colnames(corTSS) <- mynames
+rownames(corTSS) <- mynames
+
+corTSS.50 <- cor(finalvar[var.TSS[which(var.TSS%in%top.50.full)], 356:363], use="complete.obs", method="pearson")
+colnames(corTSS.50) <- mynames
+rownames(corTSS.50) <- mynames
+
+cornoTSS <- cor(finalvar[-var.TSS, 356:363], use="complete.obs", method="pearson")
+colnames(cornoTSS) <- mynames
+rownames(cornoTSS) <- mynames
+
+cornoTSS.50 <- cor(finalvar[which(rownames(finalvar)[-var.TSS]%in%top.50.full), 356:363], use="complete.obs", method="pearson")
+colnames(cornoTSS) <- mynames
+rownames(cornoTSS) <- mynames
+
+setwd("~/Desktop/corrs")
+heatmaply(cordist.1bin, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.cordist.1bin.html", margins=c(50, 50))
+heatmaply(cordist.1bin.50, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.cordist.1bin.50.html", margins=c(50, 50))
+heatmaply(cordist.2bin, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.cordist.2bin.html", margins=c(50, 50))
+heatmaply(cordist.2bin.50, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.cordist.2bin.50.html", margins=c(50, 50))
+heatmaply(cordist.2upbin, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.cordist.2upbin.html", margins=c(50, 50))
+heatmaply(cordist.2upbin.50, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.cordist.2upbin.50.html", margins=c(50, 50))
+heatmaply(cordist1000, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.cordist1000.html", margins=c(50, 50))
+heatmaply(cordist1000.50, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.cordist1000.50.html", margins=c(50, 50))
+
+heatmaply(corsize22plus, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.corsize22plus.html", margins=c(50, 50))
+heatmaply(corsize22plus.50, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.corsize22plus.50.html", margins=c(50, 50))
+heatmaply(corsize23plus, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.corsize23plus.html", margins=c(50, 50))
+heatmaply(corsize23plus.50, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.corsize23plus.50.html", margins=c(50, 50))
+heatmaply(corsize24plus, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.corsize24plus.html", margins=c(50, 50))
+heatmaply(corsize24plus.50, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.corsize24plus.50.html", margins=c(50, 50))
+heatmaply(corsize25, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.corsize25.html", margins=c(50, 50))
+heatmaply(corsize25.50, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.corsize25.50.html", margins=c(50, 50))
+heatmaply(corsize25plus, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.corsize25plus.html", margins=c(50, 50))
+heatmaply(corsize25plus.50, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.corsize25plus.50.html", margins=c(50, 50))
+
+heatmaply(corTSS, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.corTSS.html", margins=c(50, 50))
+heatmaply(corTSS.50, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.corTSS.50.html", margins=c(50, 50))
+
+heatmaply(cornoTSS, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.cornoTSS.html", margins=c(50, 50))
+heatmaply(cornoTSS.50, main="Pairwise Pearson Correlation @ 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.cornoTSS.50.html", margins=c(50, 50))
+
+finalvar <- finalvar[,7:14]
+cortest <- cor(finalvar, use="complete.obs", method="pearson")
+cortest2 <- cor(finalvar, use="complete.obs", method="spearman")
+
+rownames(cortest) <- c("A_HF", "B_HM", "C_CM", "D_CF", "E_HM", "F_HF", "G_CM", "H_CF")
+colnames(cortest) <- rownames(cortest)
+colnames(cortest2) <- rownames(cortest)
+rownames(cortest2) <- rownames(cortest)
+
+d3heatmap(cortest2, colors="Greens")
+setwd("~/Desktop")
+heatmaply(cortest, main="Pairwise Pearson Correlation of Significant Hi-C Hits, 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.html", margins=c(50, 50))
+heatmaply(cortest2, main="Pairwise Pearson Correlation of Significant Hi-C Hits, 25kb", k_row=2, k_col=2, symm=TRUE, file="spearman.heatmap.html", margins=c(50, 50))
+```
+
+```{r Function to compile homer-significant hits into a file I can use for extraction from }
+library(plyr)
+library(tidyr)
+library(data.table)
+library(reshape2)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(Hmisc)
+library(gplots)
+library(stringr)
+library(heatmaply)
+
+jointc <- fread("~/Desktop/jointC", header=TRUE, stringsAsFactors = FALSE, data.table=FALSE)
+jointh <- fread("~/Desktop/jointH", header=TRUE, stringsAsFactors = FALSE, data.table=FALSE)
+
+dis <- sighits.compiler("~/Desktop/homersig_variance", 25)
+options(scipen=999)
+
+sighits.compiler <- function(wd, res, outdir){
+  #Store a variable for mathres, for sanity and ease's sake:
+  mathres <- res*1000
+  options(scipen=999) #Keep the output human-readable
+  
+  #Load in all homersig dfs with full ortho information.
+  A_HF <- fread(paste(paste(wd, "H", "final.orthosigs", sep="/"), paste(res, "kb", sep=""),  "A-21792.txt", sep="_"), header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+  B_HM <- fread(paste(paste(wd, "H", "final.orthosigs", sep="/"), paste(res, "kb", sep=""),  "B-28126.txt", sep="_"), header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+  E_HM <- fread(paste(paste(wd, "H", "final.orthosigs", sep="/"), paste(res, "kb", sep=""),  "E-28815.txt", sep="_"), header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+  F_HF <- fread(paste(paste(wd, "H", "final.orthosigs", sep="/"), paste(res, "kb", sep=""),  "F-28834.txt", sep="_"), header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+  
+  C_CM <- fread(paste(paste(wd, "C", "final.orthosigs", sep="/"), paste(res, "kb", sep=""),  "C-3649.txt", sep="_"), header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+  D_CF <- fread(paste(paste(wd, "C", "final.orthosigs", sep="/"), paste(res, "kb", sep=""),  "D-40300.txt", sep="_"), header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+  G_CM <- fread(paste(paste(wd, "C", "final.orthosigs", sep="/"), paste(res, "kb", sep=""),  "G-3624.txt", sep="_"), header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+  H_CF <- fread(paste(paste(wd, "C", "final.orthosigs", sep="/"), paste(res, "kb", sep=""),  "H-3651.txt", sep="_"), header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+  
+  
+  #Add two columns of pair ID (combo of peak IDs) in each species, then merge these columns to HCpair for joining on. Also add 4 columns of region sizes, and 2 columns of pair distances.
+  A_HF$Hpair <- paste(A_HF$`PeakID(1)`, A_HF$`PeakID(2)`, sep="_")
+  A_HF$Cpair <- paste(paste(A_HF$C_chr1, mathres*round(A_HF$Cstart1/mathres), sep="-"), paste(A_HF$C_chr2, mathres*round(A_HF$Cstart2/mathres), sep="-"), sep="_")
+  A_HF$HCpair <- paste(A_HF$Hpair, A_HF$Cpair, sep="/")
+  A_HF$Hsize1 <- A_HF$`Hend1`-A_HF$`Hstart1`
+  A_HF$Hsize2 <- A_HF$`Hend2`-A_HF$`Hstart2`
+  A_HF$Csize1 <- A_HF$`Cend1`-A_HF$`Cstart1`
+  A_HF$Csize2 <- A_HF$`Cend2`-A_HF$`Cstart2`
+  A_HF$Hdist <- abs(A_HF$`Hstart2`-A_HF$`Hstart1`)
+  A_HF$Cdist <- abs(A_HF$`Cstart2`-A_HF$`Cstart1`)
+  
+  B_HM$Hpair <- paste(B_HM$`PeakID(1)`, B_HM$`PeakID(2)`, sep="_")
+  B_HM$Cpair <-paste(paste(B_HM$C_chr1, mathres*round(B_HM$Cstart1/mathres), sep="-"), paste(B_HM$C_chr2, mathres*round(B_HM$Cstart2/mathres), sep="-"), sep="_")
+  B_HM$HCpair <- paste(B_HM$Hpair, B_HM$Cpair, sep="/")
+  B_HM$Hsize1 <- B_HM$`Hend1`-B_HM$`Hstart1`
+  B_HM$Hsize2 <- B_HM$`Hend2`-B_HM$`Hstart2`
+  B_HM$Csize1 <- B_HM$`Cend1`-B_HM$`Cstart1`
+  B_HM$Csize2 <- B_HM$`Cend2`-B_HM$`Cstart2`
+  B_HM$Hdist <- abs(B_HM$`Hstart2`-B_HM$`Hstart1`)
+  B_HM$Cdist <- abs(B_HM$`Cstart2`-B_HM$`Cstart1`)
+  
+  C_CM$Cpair <- paste(C_CM$`PeakID(1)`, C_CM$`PeakID(2)`, sep="_")
+  C_CM$Hpair <- paste(paste(C_CM$H_chr1, mathres*round(C_CM$Hstart1/mathres), sep="-"), paste(C_CM$H_chr2, mathres*round(C_CM$Hstart2/mathres), sep="-"), sep="_")
+  C_CM$HCpair <- paste(C_CM$Hpair, C_CM$Cpair, sep="/")
+  C_CM$Csize1 <- C_CM$`Cend1`-C_CM$`Cstart1`
+  C_CM$Csize2 <- C_CM$`Cend2`-C_CM$`Cstart2`
+  C_CM$Hsize1 <- C_CM$`Hend1`-C_CM$`Hstart1`
+  C_CM$Hsize2 <- C_CM$`Hend2`-C_CM$`Hstart2`
+  C_CM$Cdist <- abs(C_CM$`Cstart2`-C_CM$`Cstart1`)
+  C_CM$Hdist <- abs(C_CM$`Hstart2`-C_CM$`Hstart1`)
+
+  D_CF$Cpair <- paste(D_CF$`PeakID(1)`, D_CF$`PeakID(2)`, sep="_")
+  D_CF$Hpair <- paste(paste(D_CF$H_chr1, mathres*round(D_CF$Hstart1/mathres), sep="-"), paste(D_CF$H_chr2, mathres*round(D_CF$Hstart2/mathres), sep="-"), sep="_")
+  D_CF$HCpair <- paste(D_CF$Hpair, D_CF$Cpair, sep="/")
+  D_CF$Csize1 <- D_CF$`Cend1`-D_CF$`Cstart1`
+	D_CF$Csize2 <- D_CF$`Cend2`-D_CF$`Cstart2`
+	D_CF$Hsize1 <- D_CF$`Hend1`-D_CF$`Hstart1`
+	D_CF$Hsize2 <- D_CF$`Hend2`-D_CF$`Hstart2`
+  D_CF$Cdist <- abs(D_CF$`Cstart2`-D_CF$`Cstart1`)
+  D_CF$Hdist <- abs(D_CF$`Hstart2`-D_CF$`Hstart1`)
+
+  
+  E_HM$Hpair <- paste(E_HM$`PeakID(1)`, E_HM$`PeakID(2)`, sep="_")
+  E_HM$Cpair <-paste(paste(E_HM$C_chr1, mathres*round(E_HM$Cstart1/mathres), sep="-"), paste(E_HM$C_chr2, mathres*round(E_HM$Cstart2/mathres), sep="-"), sep="_")
+  E_HM$HCpair <- paste(E_HM$Hpair, E_HM$Cpair, sep="/")
+  E_HM$Hsize1 <- E_HM$`Hend1`-E_HM$`Hstart1`
+  E_HM$Hsize2 <- E_HM$`Hend2`-E_HM$`Hstart2`
+  E_HM$Csize1 <- E_HM$`Cend1`-E_HM$`Cstart1`
+  E_HM$Csize2 <- E_HM$`Cend2`-E_HM$`Cstart2`
+  E_HM$Hdist <- abs(E_HM$`Hstart2`-E_HM$`Hstart1`)
+  E_HM$Cdist <- abs(E_HM$`Cstart2`-E_HM$`Cstart1`)
+  
+  F_HF$Hpair <- paste(F_HF$`PeakID(1)`, F_HF$`PeakID(2)`, sep="_")
+  F_HF$Cpair <- paste(paste(F_HF$C_chr1, mathres*round(F_HF$Cstart1/mathres), sep="-"), paste(F_HF$C_chr2, mathres*round(F_HF$Cstart2/mathres), sep="-"), sep="_")
+  F_HF$HCpair <- paste(F_HF$Hpair, F_HF$Cpair, sep="/")
+  F_HF$Hsize1 <- F_HF$`Hend1`-F_HF$`Hstart1`
+  F_HF$Hsize2 <- F_HF$`Hend2`-F_HF$`Hstart2`
+  F_HF$Csize1 <- F_HF$`Cend1`-F_HF$`Cstart1`
+  F_HF$Csize2 <- F_HF$`Cend2`-F_HF$`Cstart2`
+  F_HF$Hdist <- abs(F_HF$`Hstart2`-F_HF$`Hstart1`)
+  F_HF$Cdist <- abs(F_HF$`Cstart2`-F_HF$`Cstart1`)
+  
+  G_CM$Cpair <- paste(G_CM$`PeakID(1)`, G_CM$`PeakID(2)`, sep="_")
+  G_CM$Hpair <- paste(paste(G_CM$H_chr1, mathres*round(G_CM$Hstart1/mathres), sep="-"), paste(G_CM$H_chr2, mathres*round(G_CM$Hstart2/mathres), sep="-"), sep="_")
+  G_CM$HCpair <- paste(G_CM$Hpair, G_CM$Cpair, sep="/")
+  G_CM$Csize1 <- G_CM$`Cend1`-G_CM$`Cstart1`
+	G_CM$Csize2 <- G_CM$`Cend2`-G_CM$`Cstart2`
+	G_CM$Hsize1 <- G_CM$`Hend1`-G_CM$`Hstart1`
+	G_CM$Hsize2 <- G_CM$`Hend2`-G_CM$`Hstart2`
+  G_CM$Cdist <- abs(G_CM$`Cstart2`-G_CM$`Cstart1`)
+  G_CM$Hdist <- abs(G_CM$`Hstart2`-G_CM$`Hstart1`)
+
+  
+  H_CF$Cpair <- paste(H_CF$`PeakID(1)`, H_CF$`PeakID(2)`, sep="_")
+  H_CF$Hpair <- paste(paste(H_CF$H_chr1, mathres*round(H_CF$Hstart1/mathres), sep="-"), paste(H_CF$H_chr2, mathres*round(H_CF$Hstart2/mathres), sep="-"), sep="_")
+  H_CF$HCpair <- paste(H_CF$Hpair, H_CF$Cpair, sep="/")
+  H_CF$Csize1 <- H_CF$`Cend1`-H_CF$`Cstart1`
+	H_CF$Csize2 <- H_CF$`Cend2`-H_CF$`Cstart2`
+	H_CF$Hsize1 <- H_CF$`Hend1`-H_CF$`Hstart1`
+	H_CF$Hsize2 <- H_CF$`Hend2`-H_CF$`Hstart2`
+  H_CF$Cdist <- abs(H_CF$`Cstart2`-H_CF$`Cstart1`)
+  H_CF$Hdist <- abs(H_CF$`Hstart2`-H_CF$`Hstart1`)
+
+  #Print significant hit stats
+  print(paste("Before any merging, A-H had", nrow(A_HF), nrow(B_HM), nrow(C_CM), nrow(D_CF), nrow(E_HM), nrow(F_HF), nrow(G_CM), nrow(H_CF), "significant hits, respectively.", sep=" "))
+  
+  #Sequentially join DFs, first for humans, then chimps, then combine them both.
+  join1H <- full_join(A_HF, B_HM, by="HCpair", suffix=c("-A", "-B"))
+  join2H <- full_join(join1H, E_HM, by="HCpair")
+  final.join.H <- full_join(join2H, F_HF, by="HCpair", suffix=c("-E", "-F"))
+  
+  join1C <- full_join(C_CM, D_CF, by="HCpair", suffix=c("-C", "-D"))
+  join2C <- full_join(join1C, G_CM, by="HCpair")
+  final.join.C <- full_join(join2C, H_CF, by="HCpair", suffix=c("-G", "-H"))
+  
+  all_merged <- full_join(final.join.H, final.join.C, by="HCpair")
+  
+  #Add column signifying species
+  all_merged$species="B"
+  
+  humNAs <- rowSums(is.na(all_merged[,1:165]))
+  chimpNAs <- rowSums(is.na(all_merged[,166:329]))
+  
+  all_merged$species[which(chimpNAs==164)]="H"
+  all_merged$species[which(humNAs==164)]="C"
+  
+  #Add columns for mean values of region sizes and distances.
+  all_merged$Hsize1Hmeans <- NA
+  all_merged$Hsize2Hmeans <- NA
+  all_merged$Csize1Hmeans <- NA
+  all_merged$Csize2Hmeans <- NA
+  all_merged$HdistHmeans <- NA
+  all_merged$CdistHmeans <- NA
+  all_merged$Csize1Cmeans <- NA
+  all_merged$Csize2Cmeans <- NA
+  all_merged$Hsize1Cmeans <- NA
+  all_merged$Hsize2Cmeans <- NA
+  all_merged$CdistCmeans <- NA
+  all_merged$HdistCmeans <- NA
+  all_merged$Csize1Bmeans <- NA
+  all_merged$Csize2Bmeans <- NA
+  all_merged$Hsize1Bmeans <- NA
+  all_merged$Hsize2Bmeans <- NA
+  all_merged$CdistBmeans <- NA
+  all_merged$HdistBmeans <- NA
+  
+  all_merged$Hsize1Hmeans[which(all_merged$species=="H")] <- rowMeans(all_merged[all_merged$species=="H", c("Hsize1-A", "Hsize1-B", "Hsize1-E", "Hsize1-F")], na.rm=TRUE)
+  all_merged$Hsize2Hmeans[which(all_merged$species=="H")] <- rowMeans(all_merged[all_merged$species=="H", c("Hsize2-A", "Hsize2-B", "Hsize2-E", "Hsize2-F")], na.rm=TRUE)
+  all_merged$Csize1Hmeans[which(all_merged$species=="H")] <- rowMeans(all_merged[all_merged$species=="H", c("Csize1-A", "Csize1-B", "Csize1-E", "Csize1-F")], na.rm=TRUE)
+  all_merged$Csize2Hmeans[which(all_merged$species=="H")] <- rowMeans(all_merged[all_merged$species=="H", c("Csize2-A", "Csize2-B", "Csize2-E", "Csize2-F")], na.rm=TRUE)
+  all_merged$HdistHmeans[which(all_merged$species=="H")] <- rowMeans(all_merged[all_merged$species=="H", c("Hdist-A", "Hdist-B", "Hdist-E", "Hdist-F")], na.rm=TRUE)
+  all_merged$CdistHmeans[which(all_merged$species=="H")] <- rowMeans(all_merged[all_merged$species=="H", c("Cdist-A", "Cdist-B", "Cdist-E", "Cdist-F")], na.rm=TRUE)
+  
+  all_merged$Csize1Cmeans[which(all_merged$species=="C")] <- rowMeans(all_merged[all_merged$species=="C", c("Csize1-C", "Csize1-D", "Csize1-G", "Csize1-H")], na.rm=TRUE)
+  all_merged$Csize2Cmeans[which(all_merged$species=="C")] <- rowMeans(all_merged[all_merged$species=="C", c("Csize2-C", "Csize2-D", "Csize2-G", "Csize2-H")], na.rm=TRUE)
+  all_merged$Hsize1Cmeans[which(all_merged$species=="C")] <- rowMeans(all_merged[all_merged$species=="C", c("Hsize1-C", "Hsize1-D", "Hsize1-G", "Hsize1-H")], na.rm=TRUE)
+  all_merged$Hsize2Cmeans[which(all_merged$species=="C")] <- rowMeans(all_merged[all_merged$species=="C", c("Hsize2-C", "Hsize2-D", "Hsize2-G", "Hsize2-H")], na.rm=TRUE)
+  all_merged$CdistCmeans[which(all_merged$species=="C")] <- rowMeans(all_merged[all_merged$species=="C", c("Cdist-C", "Cdist-D", "Cdist-G", "Cdist-H")], na.rm=TRUE)
+  all_merged$HdistCmeans[which(all_merged$species=="C")] <- rowMeans(all_merged[all_merged$species=="C", c("Hdist-C", "Hdist-D", "Hdist-G", "Hdist-H")], na.rm=TRUE)
+  
+  all_merged$Csize1Bmeans[which(all_merged$species=="B")] <- rowMeans(all_merged[all_merged$species=="B", c("Csize1-A", "Csize1-B", "Csize1-E", "Csize1-F", "Csize1-C", "Csize1-D", "Csize1-G", "Csize1-H")], na.rm=TRUE)
+  all_merged$Csize2Bmeans[which(all_merged$species=="B")] <- rowMeans(all_merged[all_merged$species=="B", c("Csize2-A", "Csize2-B", "Csize2-E", "Csize2-F", "Csize2-C", "Csize2-D", "Csize2-G", "Csize2-H")], na.rm=TRUE)
+  all_merged$Hsize1Bmeans[which(all_merged$species=="B")] <- rowMeans(all_merged[all_merged$species=="B", c("Hsize1-A", "Hsize1-B", "Hsize1-E", "Hsize1-F", "Hsize1-C", "Hsize1-D", "Hsize1-G", "Hsize1-H")], na.rm=TRUE)
+  all_merged$Hsize2Bmeans[which(all_merged$species=="B")] <- rowMeans(all_merged[all_merged$species=="B", c("Hsize2-A", "Hsize2-B", "Hsize2-E", "Hsize2-F", "Hsize2-C", "Hsize2-D", "Hsize2-G", "Hsize2-H")], na.rm=TRUE)
+  all_merged$CdistBmeans[which(all_merged$species=="B")] <- rowMeans(all_merged[all_merged$species=="B", c("Cdist-A", "Cdist-B", "Cdist-E", "Cdist-F", "Cdist-C", "Cdist-D", "Cdist-G", "Cdist-H")], na.rm=TRUE)
+  all_merged$HdistBmeans[which(all_merged$species=="B")] <- rowMeans(all_merged[all_merged$species=="B", c("Hdist-A", "Hdist-B", "Hdist-E", "Hdist-F", "Hdist-C", "Hdist-D", "Hdist-G", "Hdist-H")], na.rm=TRUE)
+  
+  #Add a column to the all_merged df of number of lines that significant hit is found in.
+  all_merged$num.lines <- 0
+  all_merged$num.lines[which((chimpNAs+humNAs)==0)] <- 8
+  all_merged$num.lines[which((chimpNAs+humNAs)==41)] <- 7
+  all_merged$num.lines[which((chimpNAs+humNAs)==82)] <- 6
+  all_merged$num.lines[which((chimpNAs+humNAs)==123)] <- 5
+  all_merged$num.lines[which((chimpNAs+humNAs)==164)] <- 4
+  all_merged$num.lines[which((chimpNAs+humNAs)==205)] <- 3
+  all_merged$num.lines[which((chimpNAs+humNAs)==246)] <- 2
+  all_merged$num.lines[which((chimpNAs+humNAs)==287)] <- 1
+  
+  #Print out how many of the total significant hits there are from each species and numbers in lines.
+  #print(paste("In humans at", res, "kb, total of", nrow(final.join.H), "significant hits. "))
+  
+  #Take the HCpair column and split it up for creation of the final columns of all_merged, for homer matrix extraction:
+  tmp.mat <- str_split_fixed(all_merged$HCpair, "/", 2)
+  Hsigs <- str_split_fixed(tmp.mat[,1], "_", 2)
+  Csigs <- str_split_fixed(tmp.mat[,2], "_", 2)
+  
+  all_merged$Hchr <- str_split_fixed(Hsigs[,1], "-", 2)[,1]
+  all_merged$H1 <- Hsigs[,1]
+  all_merged$H2 <- Hsigs[,2]
+  all_merged$Cchr <- str_split_fixed(Csigs[,1], "-", 2)[,1]
+  all_merged$C1 <- Csigs[,1]
+  all_merged$C2 <- Csigs[,2]
+  
+  #Make a sig df with pair IDs for humans and for chimps, for each hit.
+  #sigdf <- data.frame(Hchr = str_split_fixed(Hsigs[,1], "-", 2)[,1], H1 = Hsigs[,1], H2 = Hsigs[,2], Cchr = str_split_fixed(Csigs[,1], "-", 2)[,1],C1=Csigs[,1], C2=Csigs[,2])
+  
+  write.table(final.join.H, "~/Desktop/jointH", col.names = TRUE, row.names=FALSE, quote=FALSE, sep="\t")
+  write.table(final.join.C, "~/Desktop/jointC", col.names = TRUE, row.names=FALSE, quote=FALSE, sep="\t")
+  write.table(all_merged, "~/Desktop/sigs_final", col.names=TRUE, row.names=FALSE, quote=FALSE, sep="\t")
+  return(all_merged)
+  #write.table()
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  #Now, iterate through chromosomes in humans and chimpanzees, loading the appropriate chromosome matrix and populating the sigdf with the appropriate values from it.
+  
+  #Humans!
+  for(chromosome in unique(sigdf$Hchr)){
+    
+    #Subset down to just the chromosome of interest in the significant hits df
+    sig.df.tmp <- sigdf[which(sigdf$Hchr==chromosome),]
+    
+    #Load in the homer matrices for each line; reformat them properly.
+    A.tmp <- fread(paste("/project2/gilad/ittai/HiC/A-21792/homer", paste(res, "kb", sep=""), mat.type, paste("A-21792", chromosome, mat.type, sep="_"), sep="/"), data.table=FALSE)
+    B.tmp <- fread(paste("/project2/gilad/ittai/HiC/B-28126/homer", paste(res, "kb", sep=""), mat.type, paste("B-28126", chromosome, mat.type, sep="_"), sep="/"), data.table=FALSE)
+    E.tmp <- fread(paste("/project2/gilad/ittai/HiC/E-28815/homer", paste(res, "kb", sep=""), mat.type, paste("E-28815", chromosome, mat.type, sep="_"), sep="/"), data.table=FALSE)
+    F.tmp <- fread(paste("/project2/gilad/ittai/HiC/F-28834/homer", paste(res, "kb", sep=""), mat.type, paste("F-28834", chromosome, mat.type, sep="_"), sep="/"), data.table=FALSE)
+    rownames(A.tmp) <- colnames(A.tmp)[-1:-2]
+    rownames(B.tmp) <- colnames(B.tmp)[-1:-2]
+    rownames(E.tmp) <- colnames(E.tmp)[-1:-2]
+    rownames(F.tmp) <- colnames(F.tmp)[-1:-2]
+    
+    #Create vectors of rownumbers and colnumbers of the homer matrices and name them appropriately.
+    row_num <- 1:nrow(A.tmp)
+    col_num <- 1:nrow(A.tmp)
+    names(row_num) <- rownames(A.tmp)
+    names(col_num) <- rownames(A.tmp)
+    
+    #Filter the rownum and colnum vectors by name to only contain the elements from the sig.df.tmp.
+    filt.rownum <- row_num[sig.df.tmp$H1]
+    filt.colnum <- col_num[sig.df.tmp$H2]
+    
+    #Combine rownum and colnum filtered vectors to get a matrix of indices to look into in the homer file
+    index.mat <- cbind(filt.rownum, filt.colnum+2) #Add 2 to filt.colnum to account for leading 2 columns in homer file
+    
+    #Assign sigdf values for each line from their respective homer matrices by indexing into them with index.mat
+    sigdf[which(sigdf$Hchr==chromosome),"A"] <- A.tmp[index.mat]
+    sigdf[which(sigdf$Hchr==chromosome),"B"] <- B.tmp[index.mat]
+    sigdf[which(sigdf$Hchr==chromosome),"E"] <- E.tmp[index.mat]
+    sigdf[which(sigdf$Hchr==chromosome),"F"] <- F.tmp[index.mat]
+    
+  }
+  
+  #Chimps!
+  for(chromosome in unique(sigdf$Cchr)){
+    
+    #Subset down to just the chromosome of interest in the significant hits df
+    sig.df.tmp <- sigdf[which(sigdf$Cchr==chromosome),]
+    
+    #Load in the homer matrices for each line; reformat them properly.
+    C.tmp <- fread(paste("/project2/gilad/ittai/HiC/C-3649/homer", paste(res, "kb", sep=""), mat.type, paste("C-3649", chromosome, mat.type, sep="_"), sep="/"), data.table=FALSE)
+    D.tmp <- fread(paste("/project2/gilad/ittai/HiC/D-40300/homer", paste(res, "kb", sep=""), mat.type, paste("D-40300", chromosome, mat.type, sep="_"), sep="/"), data.table=FALSE)
+    G.tmp <- fread(paste("/project2/gilad/ittai/HiC/G-3624/homer", paste(res, "kb", sep=""), mat.type, paste("G-3624", chromosome, mat.type, sep="_"), sep="/"), data.table=FALSE)
+    H.tmp <- fread(paste("/project2/gilad/ittai/HiC/H-3651/homer", paste(res, "kb", sep=""), mat.type, paste("H-3651", chromosome, mat.type, sep="_"), sep="/"), data.table=FALSE)
+    rownames(C.tmp) <- colnames(C.tmp)[-1:-2]
+    rownames(D.tmp) <- colnames(D.tmp)[-1:-2]
+    rownames(G.tmp) <- colnames(G.tmp)[-1:-2]
+    rownames(H.tmp) <- colnames(H.tmp)[-1:-2]
+    
+    #Create vectors of rownumbers and colnumbers of the homer matrices and name them appropriately.
+    row_num <- 1:nrow(C.tmp)
+    col_num <- 1:nrow(C.tmp)
+    names(row_num) <- rownames(C.tmp)
+    names(col_num) <- rownames(C.tmp)
+    
+    #Filter the rownum and colnum vectors by name to only contain the elements from the sig.df.tmp.
+    filt.rownum <- row_num[sig.df.tmp$C1]
+    filt.colnum <- col_num[sig.df.tmp$C2]
+    
+    #Combine rownum and colnum filtered vectors to get a matrix of indices to look into in the homer file
+    index.mat <- cbind(filt.rownum, filt.colnum+2) #Add 2 to filt.colnum to account for leading 2 columns in homer file
+    
+    #Assign sigdf values for each line from their respective homer matrices by indexing into them with index.mat
+    sigdf[which(sigdf$Cchr==chromosome),"C"] <- C.tmp[index.mat]
+    sigdf[which(sigdf$Cchr==chromosome),"D"] <- D.tmp[index.mat]
+    sigdf[which(sigdf$Cchr==chromosome),"G"] <- G.tmp[index.mat]
+    sigdf[which(sigdf$Cchr==chromosome),"H"] <- H.tmp[index.mat]
+    
+  }
+  
+  write.table(sigdf, file=paste(outdir, "var", res, "kb.sig.", mat.type, sep=""), col.names = TRUE, row.names=FALSE, quote=FALSE, sep="\t")
+}
+
+ortho.matrix.extractor(50, "norm", "/project2/gilad/ittai/HiC/homersig_variance/")
+
+#Load in all homersig matrices with full ortho information.
+A_HF <- fread("~/Desktop/homersig_variance/H/final.orthosigs_25kb_A-21792.txt", header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+B_HM <- fread("~/Desktop/homersig_variance/H/final.orthosigs_25kb_B-28126.txt", header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+E_HM <- fread("~/Desktop/homersig_variance/H/final.orthosigs_25kb_E-28815.txt", header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+F_HF <- fread("~/Desktop/homersig_variance/H/final.orthosigs_25kb_F-28834.txt", header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+
+C_CM <- fread("~/Desktop/homersig_variance/C/final.orthosigs_25kb_C-3649.txt", header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+D_CF <- fread("~/Desktop/homersig_variance/C/final.orthosigs_25kb_D-40300.txt", header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+G_CM <- fread("~/Desktop/homersig_variance/C/final.orthosigs_25kb_G-3624.txt", header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+H_CF <- fread("~/Desktop/homersig_variance/C/final.orthosigs_25kb_H-3651.txt", header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+
+#Add a column that's the pair ID (combo of peak IDs) in the appropriate species, for joining on.
+A_HF$Hpair <- paste(A_HF$`PeakID(1)`, A_HF$`PeakID(2)`, sep="_")
+A_HF$Cpair <- paste(paste(A_HF$C_chr1, 25000*round(A_HF$Cstart1/25000), sep="-"), paste(A_HF$C_chr2, 25000*round(A_HF$Cstart2/25000), sep="-"), sep="_")
+A_HF$HCpair <- paste(A_HF$Hpair, A_HF$Cpair, sep="/")
+
+B_HM$Hpair <- paste(B_HM$`PeakID(1)`, B_HM$`PeakID(2)`, sep="_")
+B_HM$Cpair <-paste(paste(B_HM$C_chr1, 25000*round(B_HM$Cstart1/25000), sep="-"), paste(B_HM$C_chr2, 25000*round(B_HM$Cstart2/25000), sep="-"), sep="_")
+B_HM$HCpair <- paste(B_HM$Hpair, B_HM$Cpair, sep="/")
+
+C_CM$Cpair <- paste(C_CM$`PeakID(1)`, C_CM$`PeakID(2)`, sep="_")
+C_CM$Hpair <- paste(paste(C_CM$H_chr1, 25000*round(C_CM$Hstart1/25000), sep="-"), paste(C_CM$H_chr2, 25000*round(C_CM$Hstart2/25000), sep="-"), sep="_")
+C_CM$HCpair <- paste(C_CM$Hpair, C_CM$Cpair, sep="/")
+
+D_CF$Cpair <- paste(D_CF$`PeakID(1)`, D_CF$`PeakID(2)`, sep="_")
+D_CF$Hpair <- paste(paste(D_CF$H_chr1, 25000*round(D_CF$Hstart1/25000), sep="-"), paste(D_CF$H_chr2, 25000*round(D_CF$Hstart2/25000), sep="-"), sep="_")
+D_CF$HCpair <- paste(D_CF$Hpair, D_CF$Cpair, sep="/")
+
+E_HM$Hpair <- paste(E_HM$`PeakID(1)`, E_HM$`PeakID(2)`, sep="_")
+E_HM$Cpair <-paste(paste(E_HM$C_chr1, 25000*round(E_HM$Cstart1/25000), sep="-"), paste(E_HM$C_chr2, 25000*round(E_HM$Cstart2/25000), sep="-"), sep="_")
+E_HM$HCpair <- paste(E_HM$Hpair, E_HM$Cpair, sep="/")
+
+F_HF$Hpair <- paste(F_HF$`PeakID(1)`, F_HF$`PeakID(2)`, sep="_")
+F_HF$Cpair <- paste(paste(F_HF$C_chr1, 25000*round(F_HF$Cstart1/25000), sep="-"), paste(F_HF$C_chr2, 25000*round(F_HF$Cstart2/25000), sep="-"), sep="_")
+F_HF$HCpair <- paste(F_HF$Hpair, F_HF$Cpair, sep="/")
+
+G_CM$Cpair <- paste(G_CM$`PeakID(1)`, G_CM$`PeakID(2)`, sep="_")
+G_CM$Hpair <- paste(paste(G_CM$H_chr1, 25000*round(G_CM$Hstart1/25000), sep="-"), paste(G_CM$H_chr2, 25000*round(G_CM$Hstart2/25000), sep="-"), sep="_")
+G_CM$HCpair <- paste(G_CM$Hpair, G_CM$Cpair, sep="/")
+
+H_CF$Cpair <- paste(H_CF$`PeakID(1)`, H_CF$`PeakID(2)`, sep="_")
+H_CF$Hpair <- paste(paste(H_CF$H_chr1, 25000*round(H_CF$Hstart1/25000), sep="-"), paste(H_CF$H_chr2, 25000*round(H_CF$Hstart2/25000), sep="-"), sep="_")
+H_CF$HCpair <- paste(H_CF$Hpair, H_CF$Cpair, sep="/")
+
+#Sequentially join DFs, first for humans, then chimps, then combine them both.
+join1H <- full_join(A_HF, B_HM, by="HCpair", suffix=c("-A", "-B"))
+join2H <- full_join(join1H, E_HM, by="HCpair")
+final.join.H <- full_join(join2H, F_HF, by="HCpair", suffix=c("-E", "-F"))
+
+join1C <- full_join(C_CM, D_CF, by="HCpair", suffix=c("-C", "-D"))
+join2C <- full_join(join1C, G_CM, by="HCpair")
+final.join.C <- full_join(join2C, H_CF, by="HCpair", suffix=c("-G", "-H"))
+
+all_merged <- full_join(final.join.H, final.join.C, by="HCpair")
+
+#Take the HCpair column and split it up for creation of the final sigdf, with appropriate columns:
+tmp.mat <- str_split_fixed(all_merged$HCpair, "/", 2)
+Hsigs <- str_split_fixed(tmp.mat[,1], "_", 2)
+Csigs <- str_split_fixed(tmp.mat[,2], "_", 2)
+
+sigdf <- data.frame(Hchr = str_split_fixed(Hsigs[,1], "-", 2)[,1], H1 = Hsigs[,1], H2 = Hsigs[,2], Cchr = str_split_fixed(Csigs[,1], "-", 2)[,1],C1=Csigs[,1], C2=Csigs[,2])
+
+#Add columns to final sigdf for each individual.
+sigdf$A <- NA
+sigdf$B <- NA
+sigdf$C <- NA
+sigdf$D <- NA
+sigdf$E <- NA
+sigdf$F <- NA
+sigdf$G <- NA
+sigdf$H <- NA
+
+#write.table(sigdf, "~/Desktop/testsigdf", row.names = FALSE, col.names = TRUE, quote=FALSE, sep = "\t")
+
+
+#sigdf <- fread("/project2/gilad/ittai/HiC/homersig_variance/testsigdf", stringsAsFactors = FALSE, data.table=FALSE)
+
+#Humans!
+for(chromosome in unique(sigdf$Hchr)){
+  
+  #Subset down to just the chromosome of interest in the significant hits df
+  sig.df.tmp <- sigdf[which(sigdf$Hchr==chromosome),]
+  
+  #Load in the homer matrices for each line; reformat them properly.
+  A.tmp <- fread(paste("/project2/gilad/ittai/HiC/A-21792/homer/25kb/norm/A-21792", chromosome, "norm", sep="_"), data.table=FALSE)
+  B.tmp <- fread(paste("/project2/gilad/ittai/HiC/B-28126/homer/25kb/norm/B-28126", chromosome, "norm", sep="_"), data.table=FALSE)
+  E.tmp <- fread(paste("/project2/gilad/ittai/HiC/E-28815/homer/25kb/norm/E-28815", chromosome, "norm", sep="_"), data.table=FALSE)
+  F.tmp <- fread(paste("/project2/gilad/ittai/HiC/F-28834/homer/25kb/norm/F-28834", chromosome, "norm", sep="_"), data.table=FALSE)
+  rownames(A.tmp) <- colnames(A.tmp)[-1:-2]
+  rownames(B.tmp) <- colnames(B.tmp)[-1:-2]
+  rownames(E.tmp) <- colnames(E.tmp)[-1:-2]
+  rownames(F.tmp) <- colnames(F.tmp)[-1:-2]
+  
+  #Create vectors of rownumbers and colnumbers of the homer matrices and name them appropriately.
+  row_num <- 1:nrow(A.tmp)
+  col_num <- 1:nrow(A.tmp)
+  names(row_num) <- rownames(A.tmp)
+  names(col_num) <- rownames(A.tmp)
+  
+  #Filter the rownum and colnum vectors by name to only contain the elements from the sig.df.tmp.
+  filt.rownum <- row_num[sig.df.tmp$H1]
+  filt.colnum <- col_num[sig.df.tmp$H2]
+  
+  #Combine rownum and colnum filtered vectors to get a matrix of indices to look into in the homer file
+  index.mat <- cbind(filt.rownum, filt.colnum+2) #Add 2 to filt.colnum to account for leading 2 columns in homer file
+  
+  #Assign sigdf values for each line from their respective homer matrices by indexing into them with index.mat
+  sigdf[which(sigdf$Hchr==chromosome),"A"] <- A.tmp[index.mat]
+  sigdf[which(sigdf$Hchr==chromosome),"B"] <- B.tmp[index.mat]
+  sigdf[which(sigdf$Hchr==chromosome),"E"] <- E.tmp[index.mat]
+  sigdf[which(sigdf$Hchr==chromosome),"F"] <- F.tmp[index.mat]
+  
+}
+
+#Chimps!
+for(chromosome in unique(sigdf$Cchr)){
+  
+  #Subset down to just the chromosome of interest in the significant hits df
+  sig.df.tmp <- sigdf[which(sigdf$Hchr==chromosome),]
+  
+  #Load in the homer matrices for each line; reformat them properly.
+  C.tmp <- fread(paste("/project2/gilad/ittai/HiC/A-21792/homer/25kb/norm/C-3649", chromosome, "norm", sep="_"), data.table=FALSE)
+  D.tmp <- fread(paste("/project2/gilad/ittai/HiC/B-28126/homer/25kb/norm/D-40300", chromosome, "norm", sep="_"), data.table=FALSE)
+  G.tmp <- fread(paste("/project2/gilad/ittai/HiC/E-28815/homer/25kb/norm/G-3624", chromosome, "norm", sep="_"), data.table=FALSE)
+  H.tmp <- fread(paste("/project2/gilad/ittai/HiC/F-28834/homer/25kb/norm/H-3651", chromosome, "norm", sep="_"), data.table=FALSE)
+  rownames(C.tmp) <- colnames(C.tmp)[-1:-2]
+  rownames(D.tmp) <- colnames(D.tmp)[-1:-2]
+  rownames(G.tmp) <- colnames(G.tmp)[-1:-2]
+  rownames(H.tmp) <- colnames(H.tmp)[-1:-2]
+  
+  #Create vectors of rownumbers and colnumbers of the homer matrices and name them appropriately.
+  row_num <- 1:nrow(C.tmp)
+  col_num <- 1:nrow(C.tmp)
+  names(row_num) <- rownames(C.tmp)
+  names(col_num) <- rownames(C.tmp)
+  
+  #Filter the rownum and colnum vectors by name to only contain the elements from the sig.df.tmp.
+  filt.rownum <- row_num[sig.df.tmp$C1]
+  filt.colnum <- col_num[sig.df.tmp$C2]
+  
+  #Combine rownum and colnum filtered vectors to get a matrix of indices to look into in the homer file
+  index.mat <- cbind(filt.rownum, filt.colnum+2) #Add 2 to filt.colnum to account for leading 2 columns in homer file
+  
+  #Assign sigdf values for each line from their respective homer matrices by indexing into them with index.mat
+  sigdf[which(sigdf$Hchr==chromosome),"C"] <- C.tmp[index.mat]
+  sigdf[which(sigdf$Hchr==chromosome),"D"] <- D.tmp[index.mat]
+  sigdf[which(sigdf$Hchr==chromosome),"G"] <- G.tmp[index.mat]
+  sigdf[which(sigdf$Hchr==chromosome),"H"] <- H.tmp[index.mat]
+  
+}
+
+write.table(sigdf, file="/project2/gilad/ittai/HiC/homersig_variance/var25kb.sig", col.names=TRUE, row.names=FALSE, quote=FALSE, sep="\t")
+
+tmpsig <- sigdf[which(sigdf$Hchr=="chr19"),]
+test <- fread("~/Desktop/A-21792_chr19_norm", data.table=FALSE)
+rownames(test) <- colnames(test)[-1:-2]
+row_num <- 1:nrow(test)
+col_num <- 1:(ncol(test)-2)
+names(row_num) <- rownames(test)
+names(col_num) <- rownames(test)
+filt.rownum <- row_num[as.character(tmpsig$H1)]
+filt.colnum <- col_num[as.character(tmpsig$H2)]
+index.mat <- cbind(filt.rownum, filt.colnum+2) #Add 2 to filt.colnum to account for leading two columns in homer file
+sigdf[which(sigdf$Hchr=="chr19"), "A"] <- test[index.mat]
+
+
+
+join1 <- full_join(C_CM, D_CF, by="Cpair", suffix=c("-C", "-D"))
+join2 <- full_join(join1, F_HF, by="Cpair")
+final.join.C <- full_join(join2, homer.F, by="Cpair", suffix=c("-E", "-F"))
+
+H_p1 <- data.frame(chr=unique(c(join2$H_chr1, join2$`H_chr1-A`, join2$`H_chr1-E`)), start=join2$H_chr2) %>% mutate(.,start=25000*round(start/25000), end=start+25000)
+
+#Generate pair IDs from the other species for each individual, then combine species-species pair IDs
+
+
+#Create some new matrices to be bed files for peak inputs into homer matrix creation
+options(scipen=999)
+H_p1 <- data.frame(chr=c(A_HF$H_chr1, C_CM$H_chr1, D_CF$H_chr1, E_HM$H_chr1, F_HF$H_chr1, G_CM$H_chr1), start=c(A_HF$Hstart1, C_CM$Hstart1, D_CF$Hstart1, E_HM$Hstart1, F_HF$Hstart1, G_CM$Hstart1)) %>% mutate(.,start=25000*round(start/25000), end=start+25000)
+
+H_p1 <- data.frame(chr=c(A_HF$H_chr1, E_HM$H_chr1, F_HF$H_chr1), start=c(A_HF$Hstart1, E_HM$Hstart1, F_HF$Hstart1)) %>% mutate(.,start=25000*round(start/25000), end=start+25000)
+H_p2 <- data.frame(chr=c(A_HF$H_chr2, E_HM$H_chr2, F_HF$H_chr2), start=c(A_HF$Hstart2, E_HM$Hstart2, F_HF$Hstart2)) %>% mutate(.,start=25000*round(start/25000), end=start+25000)
+
+filtermat <- H_p1 %>% mutate(., chr2=H_p2$chr, start2=H_p2$start, end2=H_p2$end)
+
+test <- fread("/Users/ittaieres/Desktop/Hi-C/Old Nonsense/matrices/Chr1s/Chr1_21792_matrix200k_logp.txt", data.table=FALSE)
+ head(colnames(test))
+[1] "HiCMatrix (directory=/project/gilad/ittai/results/21792/homerTruecopy)"
+[2] "Regions"                                                               
+[3] "chr1-0"                                                                
+[4] "chr1-200000"                                                           
+[5] "chr1-400000"                                                           
+[6] "chr1-600000"                                                           
+> head(rownames(test))
+[1] "1" "2" "3" "4" "5" "6"
+> rownames(test) <- colnames(test)[-1:-2]
+> test[chr1-1800000,chr1-1000000]
+Error in `[.data.frame`(test, chr1 - 1800000, chr1 - 1000000) : 
+  object 'chr1' not found
+> test["chr1-1800000","chr1-1000000"]
+[1] 22.56
+> test["chr1-1800000","chr1-1200000"]
+[1] 63.7
+> test["chr1-1800000","chr1-1400000"]
+
+
+write.table(H_p1, file = "~/Desktop/H_peak1s.bed", quote = FALSE, col.names=FALSE, row.names = FALSE)
+write.table(H_p2, file = "~/Desktop/H_peak2s.bed", quote = FALSE, col.names=FALSE, row.names = FALSE)
+options(scipen=0)
+
+A_p2 <- data.frame(chr=c(A_HF$H_chr2, C_CM$H_chr2, D_CF$H_chr2, E_HM$H_chr2, F_HF$H_chr2, G_CM$H_chr2), start=c(A_HF$Hstart2, C_CM$Hstart1, D_CF$Hstart1, E_HM$Hstart1, F_HF$Hstart1, G_CM$Hstart1) %>% mutate(.,start=25000*round(start/25000), end=start+25000)
+                   
+                   
+                   
+#Sequentially join DFs together
+join1 <- full_join(homer.A, homer.B, by="pair", suffix=c("-A", "-B"))
+join2 <- full_join(join1, homer.E, by="pair")
+final.join <- full_join(join2, homer.F, by="pair", suffix=c("-E", "-F"))
+
+#Add columns indicating number of cell lines I see it in, and mean Z-score and logP vals for multiple discoveries.
+final.join$found.in <- (4-(rowSums(is.na(final.join))/33))
+final.join$mean.Z <- rowMeans(final.join[,c(30,64,97,130)], na.rm=TRUE)
+final.join$mean.logP <- rowMeans(final.join[,c(31,65,98,131)], na.rm=TRUE)
+
+
+
+
+
+
+
+solo <- fread("~/Desktop/18only.25kb.txt", header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+joint <- fread("~/Desktop/1819joint.chr18.25kb.txt", header=TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+
+solo.pairs <- paste(solo$`start(1)`, solo$`start(2)`, sep=".")
+joint.pairs <- paste(joint$`start(1)`, joint$`start(2)`, sep=".")
+
+overlap <- solo.pairs %in% joint.pairs
+
+
+#Load in homer-significant hits.
+homer.21792 <- fread("~/Desktop/21792.200kb_R.txt", data.table=FALSE, stringsAsFactors=FALSE, header=TRUE)
+homer.28126 <- fread("~/Desktop/28126.200kb_R.txt", data.table=FALSE, stringsAsFactors=FALSE, header=TRUE)
+homer.28815 <- fread("~/Desktop/28815.200kb_R.txt", data.table=FALSE, stringsAsFactors=FALSE, header=TRUE)
+homer.28834 <-  fread("~/Desktop/28834.200kb_R.txt", data.table=FALSE, stringsAsFactors=FALSE, header=TRUE)
+
+#Add a column that's the pair ID (combo of peak IDs), for joining on.
+homer.21792$pair <- paste(homer.21792$`PeakID(1)`, homer.21792$`PeakID(2)`, sep="_")
+homer.28126$pair <- paste(homer.28126$`PeakID(1)`, homer.28126$`PeakID(2)`, sep="_")
+homer.28815$pair <- paste(homer.28815$`PeakID(1)`, homer.28815$`PeakID(2)`, sep="_")
+homer.28834$pair <- paste(homer.28834$`PeakID(1)`, homer.28834$`PeakID(2)`, sep="_")
+
+#Sequentially join these dfs together
+join1 <- full_join(homer.21792, homer.28126, by="pair")
+join2 <- full_join(join1, homer.28815, by="pair")
+final_join <- full_join(join2, homer.28834, by="pair")
+
+#Add columns indicating number of cell lines I see it in, and mean Z-score and logP vals for multiple discoveries.
+final_join$found.in <- (4-(rowSums(is.na(final_join))/4))
+final_join$mean.Z <- rowMeans(final_join[,c(3,8,12,16)], na.rm=TRUE)
+final_join$mean.logP <- rowMeans(final_join[,c(4,9,13,17)], na.rm=TRUE)
+
+#Extract elements of final_join to create a penult.bed file and then a final.bed file
+penult.bed <- data.frame(chr=rep("chr18", nrow(final_join))/2, start1 = as.numeric((substr(unlist(strsplit(final_join$pair, "_")), 7,15)[seq(1, nrow(final_join)/2, 2)])), start2=as.numeric((substr(unlist(strsplit(final_join$pair, "_")), 7,15)[seq(2, nrow(final_join)/2, 2)])), found.in = final_join$found.in, mean.Z = final_join$mean.Z, mean.logP = final_join$mean.logP)
+penult.bed$end1 <- penult.bed$start1+200000
+penult.bed$end2 <- penult.bed$start2+200000
+final.bed <- penult.bed[,c(1,2,7,3,8,4:6)]
+
+#Write file out to a new place for examination!
+write.table(final.bed, "/project/gilad/ittai/results_Mar17/committee/sig_interaxns/200kb/human.chr18", quote=FALSE, sep="\t", row.names=FALSE)
+```
+
+
+
+```{r Intraspecies variance analysis!}
+#Load necessary packages.
+library(plyr)
+library(tidyr)
+library(data.table)
+library(reshape2)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(Hmisc)
+library(gplots)
+library(RColorBrewer)
+library(VennDiagram)
+library(colorfulVennPlot)
+
+#Function to find out how many significant hits overlap at various resolutions
+overlap.finder <- function(species, resvec=c(10, 20, 30, 40, 50, 60, 70, 80, 90, 100)){
+  if(species=="H"){
+    for(res in resvec){
+      homer.A <- fread(paste("/project2/gilad/ittai/HiC/homersig_variance/", res,"kb/H/final.orthosigs_", res, "kb_A-21792.txt", sep=""))
+    }
+  }
+}
+
+
+#Load in homerfiles
+homer.A <- fread("~/Desktop/homersig_variance/H/final.orthoA-21792_10kb.txt", data.table=TRUE, stringsAsFactors=FALSE, header=TRUE)
+homer.B <- fread("~/Desktop/homersig_variance/H/final.orthoB-28126_10kb.txt", data.table=TRUE, stringsAsFactors=FALSE, header=TRUE)
+homer.E <- fread("~/Desktop/homersig_variance/H/final.orthoE-28815_10kb.txt", data.table=FALSE, stringsAsFactors=FALSE, header=TRUE)
+homer.F <- fread("~/Desktop/homersig_variance/H/final.orthoF-28834_10kb.txt", data.table=FALSE, stringsAsFactors=FALSE, header=TRUE)
+
+#Make new column of peakIDs for joining
+homer.A$pair <- paste(homer.A$`PeakID(1)`, homer.A$`PeakID(2)`, sep="_")
+homer.B$pair <- paste(homer.B$`PeakID(1)`, homer.B$`PeakID(2)`, sep="_")
+homer.E$pair <- paste(homer.E$`PeakID(1)`, homer.E$`PeakID(2)`, sep="_")
+homer.F$pair <- paste(homer.F$`PeakID(1)`, homer.F$`PeakID(2)`, sep="_")
+
+#Fix colnames so that they are not identical. Critical for using full_join below.
+colnames(homer.A) <- c("num", "H_chr1", "H_start1", "H_end1", "H_chr2", "H_start2", "H_end2", "C_chr1", "C_start1", "C_end1", "C_chr2", "C_start2", "C_end2", colnames(homer.A)[14:34])
+colnames(homer.B) <- c("num", "H_chr1", "H_start1", "H_end1", "H_chr2", "H_start2", "H_end2", "C_chr1", "C_start1", "C_end1", "C_chr2", "C_start2", "C_end2", colnames(homer.B)[14:34])
+colnames(homer.E) <- c("num", "H_chr1", "H_start1", "H_end1", "H_chr2", "H_start2", "H_end2", "C_chr1", "C_start1", "C_end1", "C_chr2", "C_start2", "C_end2", colnames(homer.E)[14:34])
+colnames(homer.F) <- c("num", "H_chr1", "H_start1", "H_end1", "H_chr2", "H_start2", "H_end2", "C_chr1", "C_start1", "C_end1", "C_chr2", "C_start2", "C_end2", colnames(homer.F)[14:34])
+
+#Sequentially join DFs together
+join1 <- full_join(homer.A, homer.B, by="pair", suffix=c("-A", "-B"))
+join2 <- full_join(join1, homer.E, by="pair")
+final.join <- full_join(join2, homer.F, by="pair", suffix=c("-E", "-F"))
+
+#Add columns indicating number of cell lines I see it in, and mean Z-score and logP vals for multiple discoveries.
+final.join$found.in <- (4-(rowSums(is.na(final.join))/33))
+final.join$mean.Z <- rowMeans(final.join[,c(30,64,97,130)], na.rm=TRUE)
+final.join$mean.logP <- rowMeans(final.join[,c(31,65,98,131)], na.rm=TRUE)
+
+#Load colors
+colors <- colorRampPalette(c(brewer.pal(9, "Blues")[1],brewer.pal(9, "Blues")[9]))(100)
+pal <- c(brewer.pal(9, "Set1"), brewer.pal(8, "Set2"), brewer.pal(12, "Set3"))
+
+#Make Venn diagram
+mylist <- list(homer.A$pair, homer.B$pair, homer.E$pair, homer.F$pair)
+test <- venn.diagram(mylist, NULL, main="Intraspecies Homer Sig Hits Variation, Humans, 10kb", sub=paste("Of", (format(nrow(final.join), big.mark=",", scientific=FALSE)), "total pairs called significant:", sep=" "), cex=1, fill=pal[1:4], lty=1, height=2000, width=3000, print.mode=c("raw", "percent"))
+grid.draw(test)
+
+#Lauren's code
+#Four_comp <- venn.diagram(mylist, filename= NULL, main="DE genes between species per day (5% FDR, batch 2)", cex=1.5 , fill = pal[1:4], lty=1, height=2000, width=3000) pdf(file = "~/Dropbox/Endoderm TC/Tables_Supplement/Supplementary_Figures/SF_4s_DE_by_species_March_13_5FDR_3_low_conf_purity.pdf")  grid.draw(Four_comp) dev.off()
+
+intravar <- function(res, diagram=FALSE){
+  mathres=res*1000
+  
+  ### FIRST, DEAL WITH HUMANS
+  #Load in the homerfiles
+  homer.A <- fread(paste("~/Desktop/homersig_variance/H/final.orthoA-21792_", res, "kb.txt", sep=""), data.table=FALSE, stringsAsFactors=FALSE, header=TRUE)
+  homer.B <- fread(paste("~/Desktop/homersig_variance/H/final.orthoB-28126_", res, "kb.txt", sep=""), data.table=FALSE, stringsAsFactors=FALSE, header=TRUE)
+  homer.E <- fread(paste("~/Desktop/homersig_variance/H/final.orthoE-28815_", res, "kb.txt", sep=""), data.table=FALSE, stringsAsFactors=FALSE, header=TRUE)
+  homer.F <- fread(paste("~/Desktop/homersig_variance/H/final.orthoF-28834_", res, "kb.txt", sep=""), data.table=FALSE, stringsAsFactors=FALSE, header=TRUE)
+  
+  #Fix the colnames
+  colnames(homer.A) <- c("num", "H_chr1", "H_start1", "H_end1", "H_chr2", "H_start2", "H_end2", "C_chr1", "C_start1", "C_end1", "C_chr2", "C_start2", "C_end2", colnames(homer.A)[14:33])
+  colnames(homer.B) <- c("num", "H_chr1", "H_start1", "H_end1", "H_chr2", "H_start2", "H_end2", "C_chr1", "C_start1", "C_end1", "C_chr2", "C_start2", "C_end2", colnames(homer.B)[14:33])
+  colnames(homer.E) <- c("num", "H_chr1", "H_start1", "H_end1", "H_chr2", "H_start2", "H_end2", "C_chr1", "C_start1", "C_end1", "C_chr2", "C_start2", "C_end2", colnames(homer.E)[14:33])
+  colnames(homer.F) <- c("num", "H_chr1", "H_start1", "H_end1", "H_chr2", "H_start2", "H_end2", "C_chr1", "C_start1", "C_end1", "C_chr2", "C_start2", "C_end2", colnames(homer.F)[14:33])
+  
+  #Add human pair IDs
+  homer.A$Hpair <- paste(homer.A$`PeakID(1)`, homer.A$`PeakID(2)`, sep="_")
+  homer.B$Hpair <- paste(homer.B$`PeakID(1)`, homer.B$`PeakID(2)`, sep="_")
+  homer.E$Hpair <- paste(homer.E$`PeakID(1)`, homer.E$`PeakID(2)`, sep="_")
+  homer.F$Hpair <- paste(homer.F$`PeakID(1)`, homer.F$`PeakID(2)`, sep="_")
+  
+  #Add chimp pair IDs
+  homer.A$Cpair <- paste(paste(homer.A$C_chr1, mathres*floor(homer.A$C_end1/mathres), sep="-"), paste(homer.A$C_chr2, mathres*floor(homer.A$C_end2/mathres), sep="-"), sep="_")
+  homer.B$Cpair <- paste(paste(homer.B$C_chr1, mathres*floor(homer.B$C_end1/mathres), sep="-"), paste(homer.B$C_chr2, mathres*floor(homer.B$C_end2/mathres), sep="-"), sep="_")
+  homer.E$Cpair <- paste(paste(homer.E$C_chr1, mathres*floor(homer.E$C_end1/mathres), sep="-"), paste(homer.E$C_chr2, mathres*floor(homer.E$C_end2/mathres), sep="-"), sep="_")
+  homer.F$Cpair <- paste(paste(homer.F$C_chr1, mathres*floor(homer.F$C_end1/mathres), sep="-"), paste(homer.F$C_chr2, mathres*floor(homer.F$C_end2/mathres), sep="-"), sep="_")
+  
+  #Sequential full joins on human IDs
+  join1h <- full_join(homer.A, homer.B, by="Hpair", suffix=c("-A", "-B"))
+  join2h <- full_join(join1h, homer.E, by="Hpair")
+  final.joinh <- full_join(join2h, homer.F, by="Hpair", suffix=c("-E", "-F"))
+  
+  #Creation of 2 full lists of human pair IDs and chimp pair IDs
+  humlist_H <- list(homer.A$Hpair, homer.B$Hpair, homer.E$Hpair, homer.F$Hpair)
+  names(humlist_H) <- c("F1", "M1", "M2", "F2")
+  
+  humlist_C <- list(homer.A$Cpair, homer.B$Cpair, homer.E$Cpair, homer.F$Cpair)
+  names(humlist_C) <- c("F1", "M1", "M2", "F2")
+  
+  ### NOW, deal w/ all chimps
+  homer.C <- fread(paste("~/Desktop/homersig_variance/C/final.orthoC-3649_", res, "kb.txt", sep=""), data.table=FALSE, stringsAsFactors=FALSE, header=TRUE)
+  homer.D <- fread(paste("~/Desktop/homersig_variance/C/final.orthoD-40300_", res, "kb.txt", sep=""), data.table=FALSE, stringsAsFactors=FALSE, header=TRUE)
+  homer.G <- fread(paste("~/Desktop/homersig_variance/C/final.orthoG-3624_", res, "kb.txt", sep=""), data.table=FALSE, stringsAsFactors=FALSE, header=TRUE)
+  homer.H <- fread(paste("~/Desktop/homersig_variance/C/final.orthoH-3651_", res, "kb.txt", sep=""), data.table=FALSE, stringsAsFactors=FALSE, header=TRUE)
+  
+  #Fix the colnames
+  colnames(homer.C) <- c("num", "C_chr1", "C_start1", "C_end1", "C_chr2", "C_start2", "C_end2", "H_chr1", "H_start1", "H_end1", "H_chr2", "H_start2", "H_end2", colnames(homer.C)[14:33])
+  colnames(homer.D) <- c("num", "C_chr1", "C_start1", "C_end1", "C_chr2", "C_start2", "C_end2", "H_chr1", "H_start1", "H_end1", "H_chr2", "H_start2", "H_end2", colnames(homer.D)[14:33])
+  colnames(homer.G) <- c("num", "C_chr1", "C_start1", "C_end1", "C_chr2", "C_start2", "C_end2", "H_chr1", "H_start1", "H_end1", "H_chr2", "H_start2", "H_end2", colnames(homer.G)[14:33])
+  colnames(homer.H) <- c("num", "C_chr1", "C_start1", "C_end1", "C_chr2", "C_start2", "C_end2", "H_chr1", "H_start1", "H_end1", "H_chr2", "H_start2", "H_end2", colnames(homer.H)[14:33])
+  
+  #Add chimp pair IDs
+  homer.C$Cpair <- paste(homer.C$`PeakID(1)`, homer.C$`PeakID(2)`, sep="_")
+  homer.D$Cpair <- paste(homer.D$`PeakID(1)`, homer.D$`PeakID(2)`, sep="_")
+  homer.G$Cpair <- paste(homer.G$`PeakID(1)`, homer.G$`PeakID(2)`, sep="_")
+  homer.H$Cpair <- paste(homer.H$`PeakID(1)`, homer.H$`PeakID(2)`, sep="_")
+  
+  #Add human pair IDs
+  homer.C$Hpair <- paste(paste(homer.C$C_chr1, mathres*floor(homer.C$C_end1/mathres), sep="-"), paste(homer.C$C_chr2, mathres*floor(homer.C$C_end2/mathres), sep="-"), sep="_")
+  homer.D$Hpair <- paste(paste(homer.D$C_chr1, mathres*floor(homer.D$C_end1/mathres), sep="-"), paste(homer.D$C_chr2, mathres*floor(homer.D$C_end2/mathres), sep="-"), sep="_")
+  homer.G$Hpair <- paste(paste(homer.G$C_chr1, mathres*floor(homer.G$C_end1/mathres), sep="-"), paste(homer.G$C_chr2, mathres*floor(homer.G$C_end2/mathres), sep="-"), sep="_")
+  homer.H$Hpair <- paste(paste(homer.H$C_chr1, mathres*floor(homer.H$C_end1/mathres), sep="-"), paste(homer.H$C_chr2, mathres*floor(homer.H$C_end2/mathres), sep="-"), sep="_")
+  
+  #Sequential full joins
+  join1c <- full_join(homer.C, homer.D, by="Cpair", suffix=c("-C", "-D"))
+  join2c <- full_join(join1c, homer.G, by="Cpair")
+  final.joinc <- full_join(join2c, homer.H, by="Cpair", suffix=c("-G", "-H"))
+  
+  #Creation of 2 full lists of human pair IDs and chimp pair IDs
+  chimplist_C <- list(homer.C$Cpair, homer.D$Cpair, homer.G$Cpair, homer.H$Cpair)
+  names(chimplist_C) <- c("M1", "F1", "M2", "F2")
+  
+  chimplist_H <- list(homer.C$Hpair, homer.D$Hpair, homer.G$Hpair, homer.H$Hpair)
+  names(chimplist_C) <- c("M1", "F1", "M2", "F2")
+
+  #Add columns indicating number of cell lines I see each sig hit, and mean Z-score and logP vals for multiple discoveries.
+  #final.join$found.in <- (4-(rowSums(is.na(final.join))/33))
+  #final.join$mean.Z <- rowMeans(final.join[,c(30,64,97,130)], na.rm=TRUE)
+  #final.join$mean.logP <- rowMeans(final.join[,c(31,65,98,131)], na.rm=TRUE)
+  
+  if(diagram==TRUE){
+    #Load colors
+    colors <- colorRampPalette(c(brewer.pal(9, "Blues")[1],brewer.pal(9, "Blues")[9]))(100)
+    pal <- c(brewer.pal(9, "Set1"), brewer.pal(8, "Set2"), brewer.pal(12, "Set3"))
+    
+    #Make Venn diagrams for intraspecies
+    venn.diagram(chimplist_C, paste("~/Desktop/intra_venn/", res, "kb/C/", "venn.", res, "kb.png", sep=""), imagetype="png", main=paste("Intraspecies Homer Sig Hits Variation, Chimps,", res, "kb", sep=" "), sub=paste("Of", format(nrow(final.join), big.mark=",", scientific=FALSE), "total pairs called significant:", sep=" "), cex=0.75, fill=pal[1:4], lty=1, height=2000, width=3000, print.mode=c("raw", "percent"))
+    
+    venn.diagram(humlist_H, paste("~/Desktop/intra_venn/", res, "kb/H/", "venn.", res, "kb.png", sep=""), imagetype="png", main=paste("Intraspecies Homer Sig Hits Variation, Humans,", res, "kb", sep=" "), sub=paste("Of", format(nrow(final.join), big.mark=",", scientific=FALSE), "total pairs called significant:", sep=" "), cex=0.75, fill=pal[1:4], lty=1, height=2000, width=3000, print.mode=c("raw", "percent"))
+  }
+  
+  #Return the long-form DF for doing whatever I want with
+  #return(final.join)
+}
+
+intravar(10)
+
+humans.10kb <- intravar(res=10, species="H", diagram=TRUE)
+chimps.10kb <- intravar(res=10, species="C", diagram=TRUE)
+
+
+##Identifying inter-species overlap of homer-significant hits.
+homer.A$pair <- paste(paste(homer.A$C_chr1, 10000*floor(homer.A$C_end1/10000), sep="-"), paste(homer.A$C_chr2, 10000*floor(homer.A$C_end2/10000), sep="-"), sep="_")
+
+test <- full_join(chimps.10kb, homer.A, by="pair")
+
+10000*floor(number/10000)
+```
+
+
+
+
+```{r Distance CDF plots}
+A_HF.dist <- fread("~/Desktop/petag_dists/A-21792_petag.FreqDistribution_1000.txt", data.table=FALSE, stringsAsFactors=FALSE)
+A_HF.dist$sample="A_HF"
+colnames(A_HF.dist) <- c("distance", "fraction of total PE tags", "sample")
+C_CM.dist <- fread("~/Desktop/petag_dists/B-28126_petag.FreqDistribution_1000.txt", data.table=FALSE, stringsAsFactors=FALSE)
+C_CM.dist$sample="C_CM"
+colnames(C_CM.dist) <- c("distance", "fraction of total PE tags", "sample")
+C_CM.dist <- fread("~/Desktop/petag_dists/C-3649_petag.FreqDistribution_1000.txt", data.table=FALSE, stringsAsFactors=FALSE)
+C_CM.dist$sample="C_CM"
+colnames(C_CM.dist) <- c("distance", "fraction of total PE tags", "sample")
+D_CF.dist <- fread("~/Desktop/petag_dists/D-40300_petag.FreqDistribution_1000.txt", data.table=FALSE, stringsAsFactors=FALSE)
+D_CF.dist$sample="D_CF"
+colnames(D_CF.dist) <- c("distance", "fraction of total PE tags", "sample")
+E_HM.dist <- fread("~/Desktop/petag_dists/E-28815_petag.FreqDistribution_1000.txt", data.table=FALSE, stringsAsFactors=FALSE)
+E_HM.dist$sample="E_HM"
+colnames(E_HM.dist) <- c("distance", "fraction of total PE tags", "sample")
+F_HF.dist <- fread("~/Desktop/petag_dists/F-28834_petag.FreqDistribution_1000.txt", data.table=FALSE, stringsAsFactors=FALSE)
+F_HF.dist$sample="F_HF"
+colnames(F_HF.dist) <- c("distance", "fraction of total PE tags", "sample")
+G_CM.dist <- fread("~/Desktop/petag_dists/G-3624_petag.FreqDistribution_1000.txt", data.table=FALSE, stringsAsFactors=FALSE, header=TRUE)
+G_CM.dist$sample="G_CM"
+colnames(G_CM.dist) <- c("distance", "fraction of total PE tags", "sample")
+H_CF.dist <- fread("~/Desktop/petag_dists/H-3651_petag.FreqDistribution_1000.txt", data.table=FALSE, stringsAsFactors=FALSE, header=TRUE)
+H_CF.dist$sample="H_CF"
+colnames(H_CF.dist) <- c("distance", "fraction of total PE tags", "sample")
+
+dist.data <- bind_rows(A_HF.dist, C_CM.dist, C_CM.dist, D_CF.dist, E_HM.dist, F_HF.dist, G_CM.dist, H_CF.dist)
+
+bjptest <- dist.data %>% group_by(sample) %>% mutate(cSum = cumsum(`fraction of total PE tags`))
+
+dist.dat <- cbind(A_HF.dist$`Fraction of total PE tags(Interchromosomal:5.938276e-01)`, C_CM.dist$`Fraction of total PE tags(Interchromosomal:5.146102e-01)`, C_CM.dist$`Fraction of total PE tags(Interchromosomal:4.781539e-01)`, D_CF.dist$`Fraction of total PE tags(Interchromosomal:5.039014e-01)`, E_HM.dist$`Fraction of total PE tags(Interchromosomal:5.450745e-01)`, F_HF.dist$`Fraction of total PE tags(Interchromosomal:5.199558e-01)`, G_CM.dist$`Fraction of total PE tags(Interchromosomal:5.201426e-01)`, H_CF.dist$`Fraction of total PE tags(Interchromosomal:5.258247e-01)`)
+```
+
+
+```{r Intraspecies Correlation on Matrices}
+library(plyr)
+library(tidyr)
+library(data.table)
+library(reshape2)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(Hmisc)
+library(lattice)
+
+#Function to get vectors from the cis matrices to calculate correlations on.
+cis.vec.build <- function(line, res, species, wd, type, auto_only=TRUE, ortho=TRUE){
+  mathres=res*1000
+  final.vec <- vector()
+  if(auto_only==FALSE){
+    if(species=="H"){genome=c("chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20", "chr21", "chr22", "chrX", "chrY", "chrM")}
+    if(species=="C"){genome=c("chr1", "chr2A", "chr2B", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20", "chr21", "chr22", "chrX", "chrY", "chrM")}
+  }
+  if(auto_only==TRUE){
+   if(species=="H"){genome=c("chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20", "chr21", "chr22")}
+    if(species=="C"){genome=c("chr1", "chr2A", "chr2B", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20", "chr21", "chr22")}
+  }
+  for(chromosome in genome){
+    cis.vec <- fread(paste(paste(wd, line, "homer", paste(res, "kb", sep=""), type, sep="/"), paste(line, chromosome, type, sep="_"), sep=""), header=TRUE, stringsAsFactors = FALSE, sep="\t", data.table=FALSE)
+    if(ortho==TRUE){
+      cis.mat <- as.matrix(cis.vec[,-1])
+      hg192hg19 <- fread(paste("~/project/gilad/ittai/bedtools_hic/hgwindows/hg19_", res, "kb.ortho.hg19", sep=""), header=FALSE, stringsAsFactors = FALSE, data.table=FALSE)
+      hg192pt3 <- fread(paste("~/project/gilad/ittai/bedtools_hic/hgwindows/hg19_", res, "kb.ortho.panTro3", sep=""), header=FALSE, stringsAsFactors = FALSE, data.table=FALSE)
+      colnames(hg192hg19) <- c("chr", "start", "end") #Grab the hg19 ortho file
+      colnames(hg192pt3) <- c("chr", "start", "end")
+      
+      #Subset down to chromo of interest
+      hg192hg19 <- hg192hg19[hg192hg19$chr==chr,]
+      hg192pt3 <- hg192pt3[hg192pt3$chr==chr,]
+      
+      shorts <- which((hg192hg19$end-hg192hg19$start)<mathres)
+      hg192hg19 <- hg192hg19[-(shorts),-(shorts+1)] #Filter out any orthos not a full range! Add 1 to column #s to account for 1st col.
+      hg192pt3 <- hg192pt3[-(shorts),-(shorts+1)] #Filter out any orthos not a full range! Add 1 to column #s to account for 1st col.
+      
+      #Now make all the bins look pretty and sensical again:
+      hg192hg19$start <- mathres*round(hg192hg19$start/mathres)
+      hg192hg19$end <- mathres*round(hg192hg19$end/mathres)
+      hg192pt3$start <- mathres*round(hg192pt3$start/mathres)
+      hg192pt3$end <- mathres*round(hg192pt3$end/mathres)
+    
+      #Make new column to get bin names similar to those in the homer matrices.
+      hg192hg19$homerID <- paste(hg192hg19$chr, format(hg192hg19$start, scientific=FALSE, trim=TRUE), sep="-")
+      hg192pt3$homerID <- paste(hg192pt3$chr, format(hg192pt3$start, scientific=FALSE, trim=TRUE), sep="-")
+      
+      #Subset the homer matrices down to only what remains after ortho liftover!
+      if(species=="H"){hg19overlap <- which(cis.mat[,1] %in% hg192hg19$homerID)
+      cis.mat <- cis.mat[hg19overlap, (hg19overlap+1)]}
+      if(species=="C"){pt3overlap <- which(cis.mat[,1] %in% hg192pt3$homerID)
+      cis.mat <- cis.mat[pt3overlap, (pt3overlap+1)]}
+      
+      cis.vec.ortho <- as.numeric(c(cis.mat))
+      if(length(cis.vec.ortho)>0){ #If it's not empty, append the new vector of orthologous cis normalized reads to the final vec.
+        final.vec <- c(final.vec, cis.vec.ortho)
+      }
+    }
+    cis.vec <- c(as.matrix(cis.vec[,c(-1,-2)]))
+    final.vec <- c(final.vec, cis.vec)
+  }
+  return(final.vec)
+}
+
+#Function to get a list of all cis.vecs for a set of lines
+cisvec.list.build <- function(separate=FALSE, species, res, type, wd){
+  
+  if(separate=TRUE){
+    if(species=="H"){
+      lines <- c("A-21792", "B-28126", "E-28815", "F-28834")
+      A_HF <- cis.vec.build("A-21792", res, species, wd, type)
+      C_CM <- cis.vec.build("B-28126", res, species, wd, type)
+      E_HM <- cis.vec.build("E-28815", res, species, wd, type)
+      F_HF <- cis.vec.build("F-28834", res, species, wd, type)
+      mylist <- list(A_HF, C_CM, E_HM, F_HF)
+      names(mylist) <- c("A_HF", "C_CM", "E_HM", "F_HF")
+    }
+    if(species=="C"){
+      lines <- c("C-3649", "D-40300", "G-3624", "H-3651")
+      C_CM <- cis.vec.build("C-3649", res, species, wd, type)
+      D_CF <- cis.vec.build("D-40300", res, species, wd, type)
+      G_CM <- cis.vec.build("G-3624", res, species, wd, type)
+      H_CF <- cis.vec.build("H-3651", res, species, wd, type)
+      mylist <- list(A_HF, C_CM, E_HM, F_HF)
+      names(mylist) <- c("C_CM", "D_CF", "G_CM", "H_CF")
+    }
+  }
+  
+  else{
+    lines <- c("A-21792", "B-28126", "E-28815", "F-28834", "C-3649", "D-40300", "G-3624", "H-3651")
+      A_HF <- cis.vec.build("A-21792", res, species, wd, type)
+      C_CM <- cis.vec.build("B-28126", res, species, wd, type)
+      E_HM <- cis.vec.build("E-28815", res, species, wd, type)
+      F_HF <- cis.vec.build("F-28834", res, species, wd, type)
+      C_CM <- cis.vec.build("C-3649", res, species, wd, type)
+      D_CF <- cis.vec.build("D-40300", res, species, wd, type)
+      G_CM <- cis.vec.build("G-3624", res, species, wd, type)
+      H_CF <- cis.vec.build("H-3651", res, species, wd, type)
+      
+      mylist <- list(A_HF, C_CM, E_HM, F_HF, C_CM, D_CF, G_CM, H_CF)
+      names(mylist) <- c("A_HF", "C_CM", "E_HM", "F_HF", "C_CM", "D_CF", "G_CM", "H_CF")
+  }
+  return(mylist) #output of this can then be run through corr.df.build
+}
+
+#Functon to create a long-form df of correlations between all pairwise possibilities
+corr.df.build <- function(cisvec.list, corr.type, res){
+  corr.mat <- matrix(nrow=length(cisvec.list), ncol=length(cisvec.list))
+  rownames(corr.mat) <- names(cisvec.list)
+  colnames(corr.mat) <- names(cisvec.list)
+  
+  others <- names(cisvec.list)
+  #Iterate across the corr.mat and fill it in
+  for(name in names(cisvec.list)){
+    corr.mat[name, name] <- NA
+    remaining <- others[-which(others==name)]
+    for(line in remaining){
+      tmp.corr <- cor.test(cisvec.list[[name]], cisvec.list[[line]], method = corr.type)
+      corr.mat[name, line] <- tmp.corr$estimate[[1]]
+      if(tmp.corr$p.value>0.05){print(paste("p-val insignificant for", line, name, res, sep=" "))}
+    }
+    others <- others[-which(others==name)]
+  }
+  final.df <- melt(corr.mat, na.rm=TRUE, value.name=paste("corr", corr.type, sep="."))
+  final.df$pairID <- paste(final.df$Var1, final.df$Var2, sep="-")
+  final.df <- final.df[,-1:-2]
+  final.df$res=res*1000
+  return(final.df)
+}
+test1 <- corr.df.build(mylist, corr.type="pearson", res=25) #row_bind a BUNCH of these together! Or look how I did this before, can now create one HUGE df!
+
+do.it.all <- function(type="norm", wd="/project2/gilad/ittai/HiC", resvec=(c("25", "50", "75", "100", "125", "150", "175", "200"))){
+  final.list <- list()
+  for(res in resvec){
+    tmp.list <- cisvec.list.build(species = "H", res = res, type=type, wd=wd)
+    final.list[[res]] <- corr.df.build(cisvec.list = tmp.list, corr.type = "pearson", res = res)
+  }
+  final.list <- rbind.fill(final.list)
+  write.table(final.list, file="/project2/gilad/ittai/HiC/final_corr_df", sep="\t", col.names=T, row.names=F, quote=F)
+}
+
+testplot <- ggplot(test1, aes(x=res, y=corr.pearson))
+testplot + geom_line(aes(colour=pairID))
+
+
+levelplot(testheat, pretty=TRUE)
+
+A_HF <- fread("~/Desktop/homernorm_correlation_variance/25kb/A-21792_Chr22_norm.txt", header=TRUE, stringsAsFactors = FALSE, sep="\t", data.table=FALSE)
+A_HF <- c(as.matrix(A_HF[,c(-1,-2)]))
+A_HF21 <- fread("~/Desktop/homernorm_correlation_variance/25kb/A-21792_Chr21_norm.txt", header=TRUE, stringsAsFactors = FALSE, sep="\t", data.table=FALSE)
+A_HF21 <- c(as.matrix(A_HF21[,c(-1,-2)]))
+C_CM <- fread("~/Desktop/homernorm_correlation_variance/25kb/B-28126_Chr22_norm.txt", header=TRUE, stringsAsFactors = FALSE, sep="\t", data.table=FALSE)
+C_CM <- c(as.matrix(C_CM[,c(-1,-2)]))
+C_CM <- fread("~/Desktop/homernorm_correlation_variance/25kb/C-3649_Chr22_norm.txt", header=TRUE, stringsAsFactors = FALSE, sep="\t", data.table=FALSE)
+C_CM <- c(as.matrix(C_CM[,c(-1,-2)]))
+D_CF <- fread("~/Desktop/homernorm_correlation_variance/25kb/D-40300_Chr22_norm.txt", header=TRUE, stringsAsFactors = FALSE, sep="\t", data.table=FALSE)
+D_CF <- c(as.matrix(D_CF[,c(-1,-2)]))
+E_HM <- fread("~/Desktop/homernorm_correlation_variance/25kb/E-28815_Chr22_norm.txt", header=TRUE, stringsAsFactors = FALSE, sep="\t", data.table=FALSE)
+E_HM <- c(as.matrix(E_HM[,c(-1,-2)]))
+F_HF <- fread("~/Desktop/homernorm_correlation_variance/25kb/F-28834_Chr22_norm.txt", header=TRUE, stringsAsFactors = FALSE, sep="\t", data.table=FALSE)
+F_HF <- c(as.matrix(F_HF[,c(-1,-2)]))
+G_CM <- fread("~/Desktop/homernorm_correlation_variance/25kb/G-3624_Chr22_norm.txt", header=TRUE, stringsAsFactors = FALSE, sep="\t", data.table=FALSE)
+G_CM <- c(as.matrix(G_CM[,c(-1,-2)]))
+H_CF <- fread("~/Desktop/homernorm_correlation_variance/25kb/H-3651_Chr22_norm.txt", header=TRUE, stringsAsFactors = FALSE, sep="\t", data.table=FALSE)
+H_CF <- c(as.matrix(H_CF[,c(-1,-2)]))
+
+testheat <- matrix(nrow=8, ncol=8) #dimnames=(c(c("A_HF", "C_CM", "C_CM", "D_CF", "E_HM", "F_HF", "G_CM", "H_CF"),c("A_HF", "C_CM", "C_CM", "D_CF", "E_HM", "F_HF", "G_CM", "H_CF"))))
+rownames(testheat) <- c("A_HF", "C_CM", "C_CM", "D_CF", "E_HM", "F_HF", "G_CM", "H_CF")
+colnames(testheat) <- c("A_HF", "C_CM", "C_CM", "D_CF", "E_HM", "F_HF", "G_CM", "H_CF")
+
+#Get the pearson correlation coefficients for all pairs, assign them to appropriate place in heatmap matrix
+testheat["A_HF","C_CM"] <- cor.test(A_HF, C_CM, method="pearson")$estimate[[1]]
+testheat["A_HF","E_HM"] <- cor.test(A_HF, E_HM, method="pearson")$estimate[[1]]
+testheat["A_HF","F_HF"] <- cor.test(A_HF, F_HF, method="pearson")$estimate[[1]]
+testheat["C_CM", "E_HM"] <- cor.test(C_CM, E_HM, method="pearson")$estimate[[1]]
+testheat["C_CM", "F_HF"] <- cor.test(C_CM, F_HF, method="pearson")$estimate[[1]]
+testheat["E_HM", "F_HF"] <- cor.test(E_HM, F_HF, method="pearson")$estimate[[1]]
+#Can now use melt on the testheat to get a df I can add a column specifying kb value to!
+
+
+# for(row in rownames(testheat)){
+#   #Get variable names for the 
+#   assign(paste("data", row, sep="."), eval(parse(text=row)))
+#   testheat[row, row] <- 1
+# }
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r Homercorr analysis}
+pair.21792.28126 <- scan("~/Desktop/Human_corrs/corrvecs200kb/21792_28126.corrvec")
+pair.21792.28815 <- scan("~/Desktop/Human_corrs/corrvecs200kb/21792_28815.corrvec")
+pair.21792.28834 <- scan("~/Desktop/Human_corrs/corrvecs200kb/21792_28834.corrvec")
+pair.28126.28815 <- scan("~/Desktop/Human_corrs/corrvecs200kb/28126_28815.corrvec")
+pair.28126.28834 <- scan("~/Desktop/Human_corrs/corrvecs200kb/28126_28834.corrvec")
+pair.28815.28834 <- scan("~/Desktop/Human_corrs/corrvecs200kb/28815_28834.corrvec")
+
+corr.mat <- as.matrix(data.frame(c21792.28126=pair.21792.28126, c21792.28815=pair.21792.28815, c21792.28834=pair.21792.28834, c28126.28815=pair.28126.28815, c28126.28834=pair.28126.28834, c28815.28834=pair.28815.28834))
+
+heatmap(t(corr.mat), Rowv=NA, Colv=NA, keep.dendro=FALSE, main="Homer Chr18 Pairwise Correlation Profiles, 200kb")
+
+data <- fread("~/Desktop/Chimp\ Sig\ Hits/chimp75.chr18", header=TRUE, stringsAsFactors = FALSE, data.table=FALSE)
+
+sum(data$found.in==4)
+sum(data$found.in==3)
+sum(data$found.in==2)
+sum(data$found.in==1)
+nrow(data)
+
+ggplot(data, aes(x=found.in, y=mean.Z, group=found.in)) + geom_boxplot() + xlab("Number of cell lines in which interaction called significant") + ylab("Mean Z score across samples") + ggtitle("Sharing of homer-significant interactions across lines, 25kb")
+
+ggplot(data, aes(x=mean.Z, y=found.in)) + geom_jitter() + xlab("Mean Z Score Across Lines") + ylab("# lines in which observed") + ggtitle("Shared significant interactions as a function of Z-score, 75kb")
+```
+
+```{r}
+vec1 <- c(0.5, 0.6, 0.3, 0.9)
+vec2 <- c(0.4, 0.61, 0.9, 0.9)
+
+my.mat <- data.frame(vec1=vec1, vec2=vec2)
+my.mat2 <- data.matrix(my.mat)
+heatmap(my.mat2, Rowv=NA, Colv=NA, col=heat.colors(256), scale="column")
+
+library(ggplot2)
+qplot(x=vec1, y=vec2) + scale_fill_gradient2(limits=c)
+```
