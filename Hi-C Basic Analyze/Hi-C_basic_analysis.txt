@@ -1,0 +1,33 @@
+for tags.tsv file:
+
+grep 'chr22.*chr22' chr22.tags.tsv > just22.tags.tsv #remove all non-cis stuff
+awk '{s+=$5}END{print s}' just22.tags.tsv #check individual read count columns to ensure it's the same as # lines in file (wc -l file)
+cut -f3,8 just22.tags.tsv > 22positions
+
+for .homer file:
+grep ‘chr3.*chr3’ $i.homer > chr3pos #extract all of a single chromosome’s contacts
+cut -f3,6 chr3pos > chr3positions
+
+grep ‘chr1.*chr1’ 21792.genomewide.pos > cutem/just1
+grep ‘chr2.*chr2’ 21792.genomewide.pos > cutem/just2
+grep ‘chr3.*chr3’ 21792.genomewide.pos > cutem/just3
+grep ‘chr4.*chr4’ 21792.genomewide.pos > cutem/just4
+grep ‘chr5.*chr5’ 21792.genomewide.pos > cutem/just5
+grep ‘chr6.*chr6’ 21792.genomewide.pos > cutem/just6
+grep ‘chr7.*chr7’ 21792.genomewide.pos > cutem/just7
+grep ‘chr8.*chr8’ 21792.genomewide.pos > cutem/just8
+grep ‘chr9.*chr9’ 21792.genomewide.pos > cutem/just9
+grep ‘chr10.*chr10’ 21792.genomewide.pos > cutem/just10
+grep ‘chr11.*chr11’ 21792.genomewide.pos > cutem/just11
+grep ‘chr12.*chr12’ 21792.genomewide.pos > cutem/just12
+grep ‘chr13.*chr13’ 21792.genomewide.pos > cutem/just13
+grep ‘chr14.*chr14’ 21792.genomewide.pos > cutem/just14
+grep ‘chr15.*chr15’ 21792.genomewide.pos > cutem/just15
+grep ‘chr17.*chr17’ 21792.genomewide.pos > cutem/just17
+grep ‘chr18.*chr18’ 21792.genomewide.pos > cutem/just18
+grep ‘chr19.*chr19’ 21792.genomewide.pos > cutem/just19
+grep ‘chr20.*chr20’ 21792.genomewide.pos > cutem/just20
+grep ‘chr21.*chr21’ 21792.genomewide.pos > cutem/just21
+grep ‘chr22.*chr22’ 21792.genomewide.pos > cutem/just22
+grep ‘chrX.*chrX’ 21792.genomewide.pos > cutem/justX
+grep ‘chrY.*chrY’ 21792.genomewide.pos > cutem/justY
