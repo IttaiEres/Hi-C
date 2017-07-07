@@ -82,7 +82,7 @@ ortho.matrix.indiv.extractor <- function(sigdf, res, mat.type, line, species, ou
 }
 ```
 
-```{r Making heatmaps from homer sig ortho results; normalizing said results}
+```{r Making heatmaps from homer sig ortho results; normalizing said results; linear modeling}
 install.packages("heatmaply")
 library(heatmaply)
 source("https://bioconductor.org/biocLite.R")
@@ -167,6 +167,8 @@ library(Hmisc)
 library(gplots)
 library(stringr)
 library(heatmaply)
+source("http://bioconductor.org/biocLite.R")
+biocLite("edgeR")
 data <- fread("~/Desktop/final.all.var.all.info", stringsAsFactors = FALSE, header=TRUE, data.table=FALSE)
 data <- data[,356:363]
 data <- data[complete.cases(data),]
@@ -195,8 +197,135 @@ apply(apply(pairs.Clow.it3.fourth, 2, quantile), 1, var)
 apply(apply(pairs.Clow.it5.third, 2, quantile), 1, var)
 apply(apply(pairs.Clow.it5.fourth, 2, quantile), 1, var)
 
+#Normalize data, plot mean vs variance by contact
+normdata <- as.data.frame(pairs.Clow.it3.third)
+means <- rowMeans(normdata)
+vars <- apply(normdata, 1, var)
+plot(means, vars, main="Mean vs. Variance in Homer-corrected contact frequency aross pairs")
+
+#Try running a linear model!
+species <- c(0,0,1,1,0,0,1,1)
+design <- model.matrix(~1+species)
+
+test <- normdata[sample(nrow(normdata), 100000),]
+testfit <- lmFit(test, design)
+testebayes <- eBayes(testfit)
+testebayes$coefficients[,2]
+testebayes$p.value[,2]
+
+summary(lm(as.numeric(normdata[1,])~species+batch+sex, data=normdata))
+samplefit <- lmFit(normdata[1,], design)
+ebayessample <- eBayes(samplefit)
+
+write.table(x = testebayes, file = "~/Desktop/testebayes", quote = FALSE, row.names = FALSE)
+readin <- fread("~/Desktop/testebayes")
+
+readin
+betas <- abs(readin$coefficients.species)
+pvals <- -log10(readin$p.value.species)
+{plot(betas, pvals)
+abline(lm(betas ~ pvals))}
+{qqnorm(readin$p.value.species)
+qqline(as.numeric(readin$p.value.species))}
+
+full.data <- fread("~/Desktop/final_homersig_info", header = TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+
+full.data <- full.data[,358:365]
+full.data <- full.data[complete.cases(full.data),]
+full.data <- as.data.frame(normalizeCyclicLoess(full.data, span=1/4, iterations=3, method="pairs"))
 
 
+batch <- c(0, 0, 0, 0, 1, 1, 1, 1) #0 for batch 1, 1 for batch 2
+sex <- c(1, 0, 0, 1, 0, 1, 0, 1) #1 for female, 0 for male
+complex.design <- model.matrix(~1+species+batch+sex)
+samplefit <- lmFit(normdata[1,], complex.design)
+sampletest <- eBayes(samplefit)
+
+basic_design <- model.matrix(~1+species)
+basicfit <- lmFit(full.data, basic_design)
+basictest <- eBayes(basicfit)
+hist(basictest$p.value[,2])
+allbetas <- abs(basictest$coefficients[,2])
+allpvals <- -log10(basictest$p.value[,2])
+{plot(allbetas, allpvals)
+abline(lm(allbetas~allpvals))}
+cor(allbetas, allpvals)
+cov(allbetas, allpvals)
+
+
+#Same thing, but only for TSS!
+full.data <- fread("~/Desktop/final_homersig_info", header = TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+tss_indices <- which(full.data$hTSS>0&full.data$cTSS>0)
+tss_only <- full.data[tss_indices,358:365]
+tss_only <- tss_only[complete.cases(tss_only),]
+
+> sum(full.data$hTSS>0&full.data$cTSS>0)
+[1] 175210
+> sum(full.data$hTSS>0|full.data$cTSS>0)
+[1] 247005
+
+tssbasic <- lmFit(tss_only, basic_design)
+tssebayes <- eBayes(tssbasic)
+tssbetas <- abs(tssebayes$coefficients[,2])
+tsspvals <- -log10(tssebayes$p.value[,2])
+{plot(tssbetas, tsspvals)
+abline(lm(tssbetas~tsspvals))}
+cor(tssbetas, tsspvals)
+
+tsscomplex <- lmFit(tss_only, complex.design)
+tsscebayes <- eBayes(tsscomplex)
+tsscbetas <- abs(tsscebayes$coefficients[,2])
+tsscpvals <- -log10(tsscebayes$p.value[,2])
+{plot(tsscbetas, tsscpvals)
+  abline(lm(tsscbetas~tsscpvals))}
+cor(tsscbetas, tsscpvals)
+```
+```{r Script for midway2 linear modeling}
+model.it <- function(samples){
+  library(limma)
+  library(plyr)
+  library(tidyr)
+  library(data.table)
+  library(reshape2)
+  library(ggplot2)
+  library(plotly)
+  library(dplyr)
+  library(Hmisc)
+  library(gplots)
+  library(stringr)
+  
+  #read in species data, model.matrix with it for basic design
+  species <- c(0,0,1,1,0,0,1,1) #0 for human, 1 for chimp
+  basic_design <- model.matrix(~1+species)
+  
+  #add in some covariates
+  batch <- c(0, 0, 0, 0, 1, 1, 1, 1) #0 for batch 1, 1 for batch 2
+  sex <- c(1, 0, 0, 1, 0, 1, 0, 1) #1 for female, 0 for male
+  lib_cells <- c()
+  avg_ct <- c() #really a proxy for confluence
+  
+  #read in and clean data  
+  data <- fread("/project2/gilad/ittai/HiC/homersig_variance/final_homersig_info", stringsAsFactors = FALSE, header=TRUE, data.table=FALSE)
+  data <- data[,358:365]
+  data <- data[complete.cases(data),]
+  data <- as.data.frame(normalizeCyclicLoess(data, span=1/4, iterations=3, method="pairs"))
+  
+  
+  #randomly select data
+  data <- data[sample(nrow(data), samples),]
+  
+  #Run limma to fit linear models for the basic design
+  fit_basic <- lmFit(data, basic_design)
+  ebayes <- eBayes(fit_basic)
+  
+  #Write out the limma files.
+  write.table(ebayes, file=paste("/project2/gilad/ittai/HiC/homersig_variance/lm/basic_ebayes_", samples), quote=FALSE, row.names=FALSE)
+  
+}
+
+model.it(50000)
+```
+```{r}
 quants.3.3rd <- data.frame()
 
 contact <- data[1:9, 1:10]
@@ -434,6 +563,9 @@ d3heatmap(cortest2, colors="Greens")
 setwd("~/Desktop")
 heatmaply(cortest, main="Pairwise Pearson Correlation of Significant Hi-C Hits, 25kb", k_row=2, k_col=2, symm=TRUE, file="pearson.heatmap.html", margins=c(50, 50))
 heatmaply(cortest2, main="Pairwise Pearson Correlation of Significant Hi-C Hits, 25kb", k_row=2, k_col=2, symm=TRUE, file="spearman.heatmap.html", margins=c(50, 50))
+```
+```{r}
+
 ```
 
 ```{r Function to compile homer-significant hits into a file I can use for extraction from }
