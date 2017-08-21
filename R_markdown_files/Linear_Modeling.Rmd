@@ -1,0 +1,394 @@
+---
+title: "Linear Modeling"
+author: "Ittai Eres"
+date: "7/7/2017"
+output: html_document
+---
+```{r Linear Modeling w/ Random Effects, BJP halped}
+library(limma)
+library(plyr)
+library(tidyr)
+library(data.table)
+library(reshape2)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(Hmisc)
+library(gplots)
+library(stringr)
+library(heatmaply)
+library(RColorBrewer)
+library(statmod)
+source("http://bioconductor.org/biocLite.R")
+biocLite("edgeR")
+
+#Read in the data, pull out the actual homer-normalized contact frequencies, clean and normalize them.
+full.data <- fread("~/Desktop/cis.norm.final.info", header = TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+full.contacts <- full.data[complete.cases(full.data[,290:297]),290:297]
+full.norm.data <- as.data.frame(normalizeCyclicLoess(full.contacts, span=1/4, iterations=3, method="pairs"))
+full.data <- full.data[complete.cases(full.data[,290:297]),] #Clean up the full data now by removing any NA values in contacts. IMPT for proper indexing below:
+tss_indices <- which(full.data$hTSS>0&full.data$cTSS>0)
+tss.data <- full.norm.data[tss_indices,]
+notss.data <- full.norm.data[-tss_indices,]
+pairnames <- full.data$HCpair
+tsspairs <- pairnames[as.numeric(rownames(tss.data))]
+bjp.data <- data.frame("pairID"=tsspairs, tss.data)
+joyce.data <- sample_n(tss.data, 10000)
+
+meta.data <- data.frame("Ind"=colnames(bjp.data)[-1], "SP"=c("H", "H", "C", "C", "H", "H", "C", "C"), "SX"=c("F", "M", "M", "F", "M", "F", "M", "F"), "Batch"=c(1, 1, 1, 1, 2, 2, 2, 2))
+
+write.table(joyce.data, "~/Desktop/joyce.data", sep = "\t", quote = FALSE, col.names = TRUE, row.names=FALSE)
+testin <- fread("~/Desktop/meta.data")
+
+#Try doing a basic model with only species, and have individual modeled as random effect with duplicateCorrelation
+basic_design <- model.matrix(~meta.data$SP)
+corfit <- duplicateCorrelation(tss.data, basic_design)
+corfit.correlation <- corfit$consensus.correlation
+fit <- lmFit(tss.data, basic_design, correlation=corfit_)
+
+
+#Setup metadata, order the same as the columns as the data:
+data.frame(Ind=colnames(ittai)[-1])->meta_order
+left_join(meta_order,meta,by="Ind")->meta.data
+
+
+#lme4 does not like seeing categorical variables being modeled as fixed effects, so we will recode the species as 0/1
+meta.data$SPc=as.integer(revalue(meta.data$SP,c("H"="0","C"="1")))
+
+#likewise, but the opposite for batch, recode these too:
+meta.data$Batch = as.character(meta.data$Batch)
+meta.data$Batch=revalue(meta.data$Batch,c("1"="A","2"="B"))
+
+#Select meta data for linear model:
+meta.data%>%select(Ind,SPc,Batch)->metainfo
+
+
+#Randomly sample dataframe to test on smaller subset, remove these lines to do the whole data set
+
+```
+
+
+```{r Modeling Work June-July 2017}
+library(limma)
+library(plyr)
+library(tidyr)
+library(data.table)
+library(reshape2)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(Hmisc)
+library(gplots)
+library(stringr)
+library(heatmaply)
+library(RColorBrewer)
+source("http://bioconductor.org/biocLite.R")
+biocLite("edgeR")
+
+#Read in the data, pull out the actual homer-normalized contact frequencies, clean and normalize them.
+full.data <- fread("~/Desktop/final_homersig_info", header = TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+full.contacts <- full.data[,358:365]
+full.contacts <- full.contacts[complete.cases(full.contacts),]
+full.norm.data <- as.data.frame(normalizeCyclicLoess(full.contacts, span=1/4, iterations=3, method="pairs"))
+full.data <- full.data[complete.cases(full.data[,358:365]),]
+tss_indices <- which(full.data$hTSS>0&full.data$cTSS>0)
+tss.data <- full.norm.data[tss_indices,]
+notss.data <- full.norm.data[-tss_indices,]
+pairnames <- full.data$HCpair
+tsspairs <- pairnames[as.numeric(rownames(tss.data))]
+bjp.data <- data.frame("pairID"=tsspairs, tss.data)
+meta.data <- data.frame("Individual"=colnames(bjp.data)[-1], "Species"=c("H", "H", "C", "C", "H", "H", "C", "C"), "Sex"=c("F", "M", "M", "F", "M", "F", "M", "F"), "Batch"=c(1, 1, 1, 1, 2, 2, 2, 2))
+
+write.csv(bjp.data, "~/Desktop/bjp.data", quote=FALSE, row.names=FALSE)
+write.csv(meta.data, "~/Desktop/meta.data", quote=FALSE, row.names=FALSE)
+tss.tot.data <- full.data[tss_indices,]
+write.table(tss.tot.data, "~/Desktop/extrainfo", quote=FALSE, row.names=FALSE)
+
+#Other covariates to consider: are these individuals related at all?
+#Check distribution of entire contact frequencies from homer, expectation of normal distribution around 0
+#Generally expect betas to correlate with their pvals, but depends on standard error
+#Are some of the stronger beta/pval hits clustered somewhere? Are they correlated with each other/localized in the same region? Are they more likely to be enriched for A or B compartment, some other kind of enrichment??? Or enriched for within-TAD or between-TAD contacts? Using a classifier for TAD membership and assigning this as another element of the linear model (is that even possible?)?
+#Add other sequencing lanes, get A and B compartments in 5kb intervals to help w/ GWAS fxnal integration
+
+#First, just look at distributions of normalized Hi-C contact frequencies.
+hist(full.norm.data, main="Distributions of normalized Hi-C contact frequencies")
+hist(tss.data, main="Distributions of normalized Hi-C contact frequencies, TSS only")
+hist(notss.data, main="Distributions of normalized Hi-C contact frequencies, no TSS")
+
+#Do PCA on the normalized data, look at PC1 vs. PC2 and see what it separates out!
+pc <- prcomp(t(full.norm.data), scale=TRUE, center=TRUE)
+species <- c("H", "H", "C", "C", "H", "H", "C", "C")
+sex <- c("F", "M", "M", "F", "M", "F", "M", "F")
+ggplot(data=as.data.frame(pc$x), aes(x=PC1, y=PC2, shape=as.factor(species), color=as.factor(batch), size=2)) + geom_point() +labs(title="PCA on normalized Hi-C Contact Frequency") + guides(color=guide_legend(order=1), size=FALSE, shape=guide_legend(order=2)) + xlab(paste("PC1 (", 100*summary(pc)$importance[2,1], "% of variance)")) + ylab((paste("PC2 (", 100*summary(pc)$importance[2,2], "% of variance)")))
+barplot(summary(pc)$importance[2,], xlab="PCs", ylab="Proportion of Variance Explained", main="PCA on normalized Hi-C contact frequency")
+
+#PC1 appears to be strongly correlated with species, but PC2 is still indeterminate...examination of the other PCs do not seem to line up with any other known covariates (batch, sex, etc.)
+
+#Now do PCA again, but on normalized data in two chunks: tss chunk and no tss chunk...
+pctss <- prcomp(t(tss.data), scale=TRUE, center=TRUE) #Tss chunk
+ggplot(data=as.data.frame(pctss$x), aes(x=PC1, y=PC2, shape=as.factor(species), color=as.factor(batch), size=2)) + geom_point() +labs(title="PCA on normalized Hi-C Contact Frequency, TSS only") + guides(color=guide_legend(order=1), size=FALSE, shape=guide_legend(order=2)) + xlab(paste("PC1 (", 100*summary(pctss)$importance[2,1], "% of variance)")) + ylab((paste("PC2 (", 100*summary(pctss)$importance[2,2], "% of variance)")))
+barplot(summary(pctss)$importance[2,], xlab="PCs", ylab="Proportion of Variance Explained", main="PCA on normalized Hi-C contact frequency, TSS only")
+
+pcnotss <- prcomp(t(notss.data), scale=TRUE, center=TRUE) #Tss chunk
+ggplot(data=as.data.frame(pcnotss$x), aes(x=PC1, y=PC2, shape=as.factor(species), color=as.factor(batch), size=2)) + geom_point() +labs(title="PCA on normalized Hi-C Contact Frequency, no TSS") + guides(color=guide_legend(order=1), size=FALSE, shape=guide_legend(order=2)) + xlab(paste("PC1 (", 100*summary(pcnotss)$importance[2,1], "% of variance)")) + ylab((paste("PC2 (", 100*summary(pcnotss)$importance[2,2], "% of variance)")))
+barplot(summary(pcnotss)$importance[2,], xlab="PCs", ylab="Proportion of Variance Explained", main="PCA on normalized Hi-C contact frequency, no TSS")
+
+#Plot mean vs variance by contact; can see relatively flat relationship b/t the two
+means <- rowMeans(full.norm.data)
+vars <- apply(full.norm.data, 1, var)
+{plot(means, vars, main="Mean vs. Variance in Homer-corrected contact frequency aross pairs")
+  abline(lm(means~vars), col="red")}
+
+#Same thing but on the set of TSS-containing pairs and on the set of no-TSS containing pairs.
+meanstss <- rowMeans(tss.data)
+varstss <- apply(tss.data, 1, var)
+{plot(meanstss, varstss, main="Mean vs. Variance in Homer-corrected contact frequency aross pairs, TSS only")
+  abline(lm(meanstss~varstss), col="red")}
+
+meansnotss <- rowMeans(notss.data)
+varsnotss <- apply(notss.data, 1, var)
+{plot(meansnotss, varsnotss, main="Mean vs. Variance in Homer-corrected contact frequency aross pairs, no TSS")
+  abline(lm(meansnotss~varsnotss), col="red")}
+
+#Try running a linear model! Very basic one with species as the only predictor.
+species <- c(0,0,1,1,0,0,1,1)
+basic_design <- model.matrix(~1+species)
+
+fullfit <- lmFit(full.norm.data, basic_design)
+fullebayes <- eBayes(fullfit)
+
+#Pull out betas and pvals for species, look at distributions of each. Do the same for residuals.
+spbetas <- abs(fullebayes$coefficients[,2])
+sppvals <- -log10(fullebayes$p.value[,2])
+hist(fullebayes$coefficients[,2])
+hist(fullebayes$p.value[,2])
+full.res <- residuals(fullebayes, full.norm.data)
+hist(full.res)
+
+#Plot betas against pvals for species, abs(betas) and -log10(pvals)
+#{plot(spbetas, sppvals, main="Betas vs. P-vals, Species, Basic LM", xlab="Species Betas", ylab="Species p-vals")}
+{plot(spbetas, sppvals, main="|Betas| vs. -log10(P-vals), Species, Basic LM", xlab="|Betas|", ylab="-log10 p-vals")
+  abline(lm(spbetas~sppvals), col="red")}
+
+#Make qqplot to check p-values
+newqqplot(sppvals, always.plot=-1)
+
+#Take a look at PCA of residuals!
+pcres <- prcomp(t(full.res), scale=TRUE, center=TRUE)
+ggplot(data=as.data.frame(pcres$x), aes(x=PC1, y=PC2, shape=as.factor(sex), color=as.factor(batch), size=2)) + geom_point() +labs(title="PCA on residuals from full linear model") + guides(color=guide_legend(order=1), size=FALSE, shape=guide_legend(order=2)) + xlab(paste("PC1 (", 100*summary(pcres)$importance[2,1], "% of variance)")) + ylab((paste("PC2 (", 100*summary(pcres)$importance[2,2], "% of variance)")))
+barplot(summary(pcres)$importance[2,], xlab="PCs", ylab="Proportion of Variance Explained", main="PCA on residuals from full linear model")
+
+#All this stuff again, but only on TSS-containing set, and then only on set not containing TSS.
+tssfit <- lmFit(tss.data, basic_design)
+tssebayes <- eBayes(tssfit)
+#Pull out betas and pvals for species, look at distributions of each
+spbetastss <- abs(tssebayes$coefficients[,2])
+sppvalstss <- -log10(tssebayes$p.value[,2])
+hist(tssebayes$coefficients[,2])
+hist(tssebayes$p.value[,2])
+tss.res <- residuals(tssebayes, tss.data)
+hist(tss.res)
+
+tss.info <- topTable(tssebayes, number=175195, sort.by="none")
+sig.indices <- rownames(tss.info)[which(tss.info$adj.P.Val<=0.05)]
+insig.indices <- rownames(tss.info)[which(tss.info$adj.P.Val>0.05)]
+rownames(tss.info)
+#Plot betas against pvals for species, abs(betas) and -log10(pvals)
+#{plot(spbetas, sppvals, main="Betas vs. P-vals, Species, Basic LM", xlab="Species Betas", ylab="Species p-vals")}
+{plot(spbetastss, sppvalstss, main="|Betas| vs. -log10(P-vals), Species, Basic LM, TSS only", xlab="|Betas|", ylab="-log10 p-vals")
+  abline(lm(spbetastss~sppvalstss), col="red")}
+#Make qqplot to check p-values
+newqqplot(sppvalstss, always.plot=-1)
+#Take a look at PCA of residuals!
+pcrestss <- prcomp(t(tss.res), scale=TRUE, center=TRUE)
+ggplot(data=as.data.frame(pcrestss$x), aes(x=PC1, y=PC2, shape=as.factor(sex), color=as.factor(batch), size=2)) + geom_point() +labs(title="PCA on residuals from full linear model, TSS only") + guides(color=guide_legend(order=1), size=FALSE, shape=guide_legend(order=2)) + xlab(paste("PC1 (", 100*summary(pcrestss)$importance[2,1], "% of variance)")) + ylab((paste("PC2 (", 100*summary(pcrestss)$importance[2,2], "% of variance)")))
+barplot(summary(pcrestss)$importance[2,], xlab="PCs", ylab="Proportion of Variance Explained", main="PCA on residuals from full linear model, TSS only")
+
+notssfit <- lmFit(notss.data, basic_design)
+notssebayes <- eBayes(notssfit)
+#Pull out betas and pvals for species, look at distributions of each
+spbetasnotss <- abs(notssebayes$coefficients[,2])
+sppvalsnotss <- -log10(notssebayes$p.value[,2])
+hist(notssebayes$coefficients[,2])
+hist(notssebayes$p.value[,2])
+notss.res <- residuals(notssebayes, notss.data)
+hist(notss.res)
+#Plot betas against pvals for species, abs(betas) and -log10(pvals)
+#{plot(spbetas, sppvals, main="Betas vs. P-vals, Species, Basic LM", xlab="Species Betas", ylab="Species p-vals")}
+{plot(spbetasnotss, sppvalsnotss, main="|Betas| vs. -log10(P-vals), Species, Basic LM, no TSS", xlab="|Betas|", ylab="-log10 p-vals")
+  abline(lm(spbetasnotss~sppvalsnotss), col="red")}
+#Make qqplot to check p-values
+newqqplot(sppvalsnotss, always.plot=-1)
+#Take a look at PCA of residuals!
+pcresnotss <- prcomp(t(notss.res), scale=TRUE, center=TRUE)
+ggplot(data=as.data.frame(pcresnotss$x), aes(x=PC1, y=PC2, shape=as.factor(sex), color=as.factor(batch), size=2)) + geom_point() +labs(title="PCA on residuals from full linear model, no TSS") + guides(color=guide_legend(order=1), size=FALSE, shape=guide_legend(order=2)) + xlab(paste("PC1 (", 100*summary(pcresnotss)$importance[2,1], "% of variance)")) + ylab((paste("PC2 (", 100*summary(pcresnotss)$importance[2,2], "% of variance)")))
+barplot(summary(pcresnotss)$importance[2,], xlab="PCs", ylab="Proportion of Variance Explained", main="PCA on residuals from full linear model, no TSS")
+#Look at a box plot of betas for species vs. the residuals!
+#boxplot(spbetas, full.res)
+
+#Try doing everything again, with a slightly more complicated model that also includes batch and sex as covariates.
+batch <- c(0, 0, 0, 0, 1, 1, 1, 1) #0 for batch 1, 1 for batch 2
+sex <- c(1, 0, 0, 1, 0, 1, 0, 1) #1 for female, 0 for male
+complex.design <- model.matrix(~1+species+batch+sex)
+
+
+
+
+newqqplot=function(pvals, always.plot=500,density=35){  
+  len = length(pvals)
+  res=qqplot(-log10((1:len)/(1+len)),pvals,plot.it=F)
+  if(always.plot>=0){
+    pp=pickpoints(len,always.plot,density)
+    plot(res$x[pp],res$y[pp])
+  }else{
+    plot(res$x,res$y)
+  }
+}
+#VarPart Work
+sample <- full.norm.data[sample(nrow(full.norm.data), 50000),]
+library(plyr)
+library(tidyr)
+library(data.table)
+library(reshape2)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(Hmisc)
+library(gplots)
+library(stringr)
+library(variancePartition)
+library(doParallel)
+
+#Work with variancePartition, basic analysis.
+cl <- makeCluster(4)
+registerDoParallel(cl)
+covariates <- data.frame(individual=colnames(full.norm.data), species=c("H", "H", "C", "C", "H", "H", "C", "C"), batch=c("early", "early", "early", "early", "late", "late", "late", "late"), sex=c("F", "M", "M", "F", "M", "F", "M", "F"))
+form <- ~ (1|species) + (1|sex) + (1|batch)
+basic_form <- ~ (1|species)
+
+varPart <- fitExtractVarPartModel(sample, form, covariates)
+vp <- sortCols(varPart)
+fig <- plotVarPart(vp)
+ggsave("~/Desktop/testfile", fig, "pdf")
+list.save(varPart, "~/Desktop/testvarPart.Rdata")
+readin <- list.load("~/Desktop/testvarPart.Rdata")
+
+full.data <- fread("~/Desktop/final_homersig_info", header = TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+full.data <- full.data[complete.cases(full.data[,358:365]),]
+tss_indices <- which(full.data$hTSS>0&full.data$cTSS>0)
+write.table(full.norm.data[tss_indices,], "~/Desktop/normalized.data.tss", quote=FALSE, row.names=FALSE)
+write.table(full.norm.data[-tss_indices,], "~/Desktop/normalized.data.no.tss", quote=FALSE, row.names=FALSE)
+##########
+summary(lm(as.numeric(normdata[1,])~species+batch+sex, data=normdata))
+samplefit <- lmFit(normdata[1,], design)
+ebayessample <- eBayes(samplefit)
+
+write.table(x = testebayes, file = "~/Desktop/testebayes", quote = FALSE, row.names = FALSE)
+readin <- fread("~/Desktop/testebayes")
+
+readin
+betas <- abs(readin$coefficients.species)
+pvals <- -log10(readin$p.value.species)
+{plot(betas, pvals)
+abline(lm(betas ~ pvals))}
+{qqnorm(readin$p.value.species)
+qqline(as.numeric(readin$p.value.species))}
+
+full.data <- fread("~/Desktop/final_homersig_info", header = TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+
+full.data <- full.data[,358:365]
+full.data <- full.data[complete.cases(full.data),]
+full.data <- as.data.frame(normalizeCyclicLoess(full.data, span=1/4, iterations=3, method="pairs"))
+
+
+batch <- c(0, 0, 0, 0, 1, 1, 1, 1) #0 for batch 1, 1 for batch 2
+sex <- c(1, 0, 0, 1, 0, 1, 0, 1) #1 for female, 0 for male
+individual <- c(1, 2, 3, 4, 5, 6, 7, 8) #For random effect by individual
+complex.design <- model.matrix(~1+species+batch+sex)
+samplefit <- lmFit(normdata[1,], complex.design)
+sampletest <- eBayes(samplefit)
+
+basic_design <- model.matrix(~1+species)
+basicfit <- lmFit(full.data, basic_design)
+basictest <- eBayes(basicfit)
+hist(basictest$p.value[,2])
+allbetas <- abs(basictest$coefficients[,2])
+allpvals <- -log10(basictest$p.value[,2])
+{plot(allbetas, allpvals)
+abline(lm(allbetas~allpvals))}
+cor(allbetas, allpvals)
+cov(allbetas, allpvals)
+
+
+#Same thing, but only for TSS!
+full.data <- fread("~/Desktop/final_homersig_info", header = TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+tss_indices <- which(full.data$hTSS>0&full.data$cTSS>0)
+tss_only <- full.data[tss_indices,358:365]
+tss_only <- tss_only[complete.cases(tss_only),]
+
+> sum(full.data$hTSS>0&full.data$cTSS>0)
+[1] 175210
+> sum(full.data$hTSS>0|full.data$cTSS>0)
+[1] 247005
+
+tssbasic <- lmFit(tss_only, basic_design)
+tssebayes <- eBayes(tssbasic)
+tssbetas <- abs(tssebayes$coefficients[,2])
+tsspvals <- -log10(tssebayes$p.value[,2])
+{plot(tssbetas, tsspvals)
+abline(lm(tssbetas~tsspvals))}
+cor(tssbetas, tsspvals)
+
+tsscomplex <- lmFit(tss_only, complex.design)
+tsscebayes <- eBayes(tsscomplex)
+tsscbetas <- abs(tsscebayes$coefficients[,2])
+tsscpvals <- -log10(tsscebayes$p.value[,2])
+{plot(tsscbetas, tsscpvals)
+  abline(lm(tsscbetas~tsscpvals))}
+cor(tsscbetas, tsscpvals)
+```
+```{r Script for midway2 linear modeling}
+model.it <- function(samples){
+  library(limma)
+  library(plyr)
+  library(tidyr)
+  library(data.table)
+  library(reshape2)
+  library(ggplot2)
+  library(plotly)
+  library(dplyr)
+  library(Hmisc)
+  library(gplots)
+  library(stringr)
+  
+  #read in species data, model.matrix with it for basic design
+  species <- c(0,0,1,1,0,0,1,1) #0 for human, 1 for chimp
+  basic_design <- model.matrix(~1+species)
+  
+  #add in some covariates
+  batch <- c(0, 0, 0, 0, 1, 1, 1, 1) #0 for batch 1, 1 for batch 2
+  sex <- c(1, 0, 0, 1, 0, 1, 0, 1) #1 for female, 0 for male
+  lib_cells <- c()
+  avg_ct <- c() #really a proxy for confluence
+  
+  #read in and clean data  
+  data <- fread("/project2/gilad/ittai/HiC/homersig_variance/final_homersig_info", stringsAsFactors = FALSE, header=TRUE, data.table=FALSE)
+  data <- data[,358:365]
+  data <- data[complete.cases(data),]
+  data <- as.data.frame(normalizeCyclicLoess(data, span=1/4, iterations=3, method="pairs"))
+  
+  
+  #randomly select data
+  data <- data[sample(nrow(data), samples),]
+  
+  #Run limma to fit linear models for the basic design
+  fit_basic <- lmFit(data, basic_design)
+  ebayes <- eBayes(fit_basic)
+  
+  #Write out the limma files.
+  write.table(ebayes, file=paste("/project2/gilad/ittai/HiC/homersig_variance/lm/basic_ebayes_", samples), quote=FALSE, row.names=FALSE)
+  
+}
+
+model.it(50000)
+```

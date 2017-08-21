@@ -1,0 +1,403 @@
+---
+title: "Yoav Meetings"
+author: "Ittai Eres"
+date: "8/8/2017"
+output: html_document
+---
+
+```{r Load libraries and functions, loading in of basic data, and normalization. No meeting-specific things here!}
+library(limma)
+library(plyr)
+library(tidyr)
+library(data.table)
+library(reshape2)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(Hmisc)
+library(gplots)
+library(stringr)
+library(heatmaply)
+library(RColorBrewer)
+library(edgeR)
+library(tidyverse)
+
+newqqplot=function(pvals, quant){  
+  len = length(pvals)
+  res=qqplot(-log10((1:len)/(1+len)),pvals,plot.it=F)
+  plot(res$x,res$y, main="QQ plot", xlab="Theoretical", ylab="Actual", col=ifelse(res$y>as.numeric(quantile(res$y, quant[1])), ifelse(res$y>as.numeric(quantile(res$y, quant[2])), "red", "blue"), "black"))
+  abline(0, 1)
+}
+
+###Read in the data, pull out the actual homer-normalized contact frequencies, clean and normalize them.
+full.data <- fread("~/Desktop/cis.norm.aug.info", header = TRUE, stringsAsFactors = FALSE, data.table = FALSE)
+full.contacts <- full.data[complete.cases(full.data[,302:309]),302:309]
+full.norm.contacts <- as.data.frame(normalizeCyclicLoess(full.contacts, span=1/4, iterations=3, method="pairs"))
+full.data.clean <- full.data[complete.cases(full.data[,302:309]),] #Clean up the full data now by removing any NA values in contacts. Note that this removes approximately 50k significant hits. IMPT for proper indexing in different types of hits later on.
+meta.data <- data.frame("SP"=c("H", "H", "C", "C", "H", "H", "C", "C"), "SX"=c("F", "M", "M", "F", "M", "F", "M", "F"), "Batch"=c(1, 1, 1, 1, 2, 2, 2, 2))
+```
+
+```{r Cleanly add columns to the full data frame indicating a variety of discovery stats, and then also linear modeling outputs}
+#Add species of discovery stats to the data frame.
+#Figure out which species each hit was identified in. Do this by calculating number of NAs per row in either human or chimp cohorts, then dividing by 35 (each individual has 35 columns)
+humNAs <- rowSums(is.na(full.data.clean[,1:141]))
+chimpNAs <- rowSums(is.na(full.data.clean[,142:281]))
+full.data.clean$found_in_H <- (4-humNAs/35) #Set a new column identifying number of humans hit was found in
+full.data.clean$found_in_C <- (4-chimpNAs/35) #Set a new column identifying number of chimps hit was found in
+full.data.clean$disc_species <- ifelse(full.data.clean$found_in_C>0&full.data.clean$found_in_H>0, "B", ifelse(full.data.clean$found_in_C==0, "H", "C")) #Set a column identifying which species (H, C, or Both) the hit in question was identified in. Works with nested ifelses.
+full.data.clean$tot_indiv_IDd <- full.data.clean$found_in_C+full.data.clean$found_in_H #Add a column specifying total number of individuals homer found the significant hit in.
+
+#Do the standard-issue linear modeling I've been doing, with sex, batch, and species as fixed effects.
+design <- model.matrix(~1+meta.data$SP+meta.data$SX+meta.data$Batch)
+lmFit(full.norm.contacts, design) %>% eBayes(.) -> model
+volc <- topTable(model, coef = 2, sort.by = "none", number = Inf)
+full.data.clean$sp_pval <- volc$adj.P.Val #Add a column to the full data with its adjusted species p-val.
+full.data.clean$sp_beta <- volc$logFC
+```
+
+```{r Variety of functions for performing different tasks here}
+
+```
+
+
+
+```{r Meeting 8-18-17}
+####Visualizaton of bin retention in liftover!
+retained.bins <- data.frame(IDs=c("A_HF", "B_HM", "E_HM", "F_HF", "C_CM", "D_CF", "G_CM", "H_CF"), sig.hits=c(307096, 303911, 244193, 265185, 252445, 299562, 260019, 246213), retained.m1=c(240025, 234175, 189023, 205267, 196790, 236499, 202079, 191339), retained.m2=c(240696, 235717, 189246, 206394, 196296, 236354, 201889, 190877), retained.both=c(195974, 190485, 153440, 167020, 159707, 193246, 163765, 154567), perc1=retained.bins$retained.m1/retained.bins$sig.hits, perc2=retained.bins$retained.m2/retained.bins$sig.hits, percboth=retained.bins$retained.both/retained.bins$sig.hits) #,lost=retained.bins$sig.hits-retained.bins, perc1=retained.bins$retained.m1/retained.bins$sig.hits, perc2=retained.bins$retained.m2/retained.bins$sig.hits, percboth=retained.bins$retained.both/retained.bins$sig.hits)
+#retained.bins$perc <- retained.bins$retained/retained.bins$sig.hits
+bins.plot <- melt(retained.bins[,1:5])
+bins.plot$perc <- c(rep(100, 8), round(100*retained.bins$perc1), round(100*retained.bins$perc2), round(100*retained.bins$percboth))
+
+indis <- c("A_HF", "B_HM", "E_HM", "F_HF", "C_CM", "D_CF", "G_CM", "H_CF")
+
+#ggplot(data=bins.plot[1:8,], aes(x=IDs, y=value))+geom_col()+geom_col(data=bins.plot[-1:-8,], aes(x=IDs, fill=variable), position="dodge")+geom_text(data=bins.plot[-1:-8,],  aes(label=perc, group=variable),size=3, position=position_dodge(width=.01)) #position="identity" would make the positions of the new bars all on top of each other. Kind of difficult to see with the color scheme
+
+ggplot(data=bins.plot, aes(x=IDs, y=value,group=variable)) + 
+  geom_col(data=bins.plot[1:8,],aes(fill="Total Hits")) +
+  geom_col(data=bins.plot[-1:-8,],aes(x=IDs,fill=variable),position="dodge") +
+  geom_text(data=bins.plot[-1:-8,], aes(label=perc, group=variable, y=value/2),size=2.5, position=position_dodge(width=.9)) +
+  ggtitle("LiftOver Retention of Bins from Homer Significant Hits") + xlab("Individuals") + ylab("Count") + scale_fill_discrete(name="Categories", labels=c("Hits Retained (both pairs)", "Mate 1s Retained", "Mate 2s Retained", "Significant Pairs")) + scale_x_discrete(limits=indis)
+
+
+##Double checking on some results from last time, utilizing different techniques to visualize and confirm--seeing if volcano plot points can be created coded for chimp and human discoveries, and if it's true that the most negative betas are always discovered in humans...
+
+#Look at distributions of betas by species of discovery
+hist(full.data.clean$sp_beta[full.data.clean$disc_species=="C"])
+hist(full.data.clean$sp_beta[full.data.clean$disc_species=="H"])
+#Discoveries made in chimp definitely appear more negative on average, and discoveries made in human more positive species beta. Chimp discovered betas also simply appear to have more variance
+
+#Look at quantiles of species betas, then check the lower quantile for proportions of disc_species
+quantile(full.data.clean$sp_beta)
+which(full.data.clean$sp_beta<=-4&full.data.clean$disc_species=="H")
+#It does appear majority of extreme observations (<=-7) are discovered exclusively in humans. The human discovered ones in the extreme negative end appear to be MUCH farther apart in distance than the chimp ortholog...(e.g. 46 million bp apart vs 175kb). They also ALL appear to be some nonsense on chr12 that is very close in humans and very far apart in chimps--chimps, chr12 21050000 & 67675000, humans, chr12 21000000 & 20850000
+
+##Making two new charts to understand this: a betas proportion with discrete intervals, and another one for all the betas regardless of whether they were significant.
+beta.prop <- data.frame(beta=seq(-7.5, 7.5, 0.1), propH=NA, propC=NA, propB=NA, prop1=NA, prop2=NA, prop3=NA, prop4=NA, prop5=NA, prop6=NA, prop7=NA, prop8=NA)
+
+for(row in 1:nrow(beta.prop)){
+  beta <- beta.prop[row,1]
+  nextbeta <- beta+0.1
+  beta.prop$propH[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="H")/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta)
+  beta.prop$propC[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="C")/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta)
+  beta.prop$propB[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="B")/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta)
+  beta.prop$prop1[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$tot_indiv_IDd==1)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta)
+  beta.prop$prop2[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$tot_indiv_IDd==2)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta)
+  beta.prop$prop3[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$tot_indiv_IDd==3)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta)
+  beta.prop$prop4[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$tot_indiv_IDd==4)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta)
+  beta.prop$prop5[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$tot_indiv_IDd==5)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta)
+  beta.prop$prop6[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$tot_indiv_IDd==6)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta)
+  beta.prop$prop7[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$tot_indiv_IDd==7)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta)
+  beta.prop$prop8[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$tot_indiv_IDd==8)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta)
+}
+beta.prop$ids <- beta.prop$beta+7.5
+specs_beta <- melt(beta.prop[,c(13, 2:4)], id.vars="ids")
+specs_beta$beta <- specs_beta$ids-7.5
+indis_beta <- melt(beta.prop[,c(13, 5:12)], id.vars="ids")
+indis_beta$beta <- indis_beta$ids-7.5
+ggplot(specs_beta, aes(x=beta, y=value, fill=variable)) + geom_col(aes(color=variable, fill=variable)) + labs(title="Proportion of Significant Hits ID'd in Each Species across Betas") + xlab("Beta") + ylab("Proportion") + scale_fill_discrete(name="Homer-significant in", labels=c("Human", "Chimp", "Both")) + scale_color_discrete(name="Homer-significant in", labels=c("Human", "Chimp", "Both"))
+
+ggplot(indis_beta, aes(x=beta, y=value, fill=variable)) + geom_col(aes(color=variable, fill=variable)) + labs(title="Proportion of Significant Hits ID'd in # Individuals across Betas") + xlab("Beta") + ylab("Proportion") + scale_fill_discrete(name="Homer-significant in", labels=(1:8)) + scale_color_discrete(name="Homer-significant in", labels=(1:8))
+
+
+
+########Run it all back, but this time only for the hits that were significant af 5% FDR!
+beta.prop.sig <- data.frame(beta=seq(-7.5, 7.5, 0.1), propH=NA, propC=NA, propB=NA, prop1=NA, prop2=NA, prop3=NA, prop4=NA, prop5=NA, prop6=NA, prop7=NA, prop8=NA)
+
+for(row in 1:nrow(beta.prop.sig)){
+  beta <- beta.prop.sig[row,1]
+  nextbeta <- beta+0.1
+  beta.prop.sig$propH[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05&full.data.clean$sp_pval<=0.05&full.data.clean$disc_species=="H")/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05)
+  beta.prop.sig$propC[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05&full.data.clean$disc_species=="C")/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05)
+  beta.prop.sig$propB[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05&full.data.clean$disc_species=="B")/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05)
+  beta.prop.sig$prop1[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05&full.data.clean$tot_indiv_IDd==1)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05)
+  beta.prop.sig$prop2[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05&full.data.clean$tot_indiv_IDd==2)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05)
+  beta.prop.sig$prop3[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05&full.data.clean$tot_indiv_IDd==3)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05)
+  beta.prop.sig$prop4[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05&full.data.clean$tot_indiv_IDd==4)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05)
+  beta.prop.sig$prop5[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05&full.data.clean$tot_indiv_IDd==5)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05)
+  beta.prop.sig$prop6[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05&full.data.clean$tot_indiv_IDd==6)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05)
+  beta.prop.sig$prop7[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05&full.data.clean$tot_indiv_IDd==7)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05)
+  beta.prop.sig$prop8[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05&full.data.clean$tot_indiv_IDd==8)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$sp_pval<=0.05)
+}
+beta.prop.sig$ids <- beta.prop.sig$beta+7.5
+specs_beta.sig <- melt(beta.prop.sig[,c(13, 2:4)], id.vars="ids")
+specs_beta.sig$beta <- specs_beta.sig$ids-7.5
+indis_beta.sig <- melt(beta.prop.sig[,c(13, 5:12)], id.vars="ids")
+indis_beta.sig$beta <- indis_beta.sig$ids-7.5
+ggplot(specs_beta.sig, aes(x=beta, y=value, fill=variable)) + geom_col(aes(color=variable, fill=variable)) + labs(title="Proportion of Significant Hits ID'd in Each Species across Betas, 5% FDR") + xlab("Beta") + ylab("Proportion") + scale_fill_discrete(name="Homer-significant in", labels=c("Human", "Chimp", "Both")) + scale_color_discrete(name="Homer-significant in", labels=c("Human", "Chimp", "Both")) + theme(plot.title=element_text(hjust=.25))
+
+ggplot(indis_beta.sig, aes(x=beta, y=value, fill=variable)) + geom_col(aes(color=variable, fill=variable)) + labs(title="Proportion of Significant Hits ID'd in # Individuals across Betas, 5% FDR") + xlab("Beta") + ylab("Proportion") + scale_fill_discrete(name="Homer-significant in", labels=(1:8)) + scale_color_discrete(name="Homer-significant in", labels=(1:8)) + theme(plot.title=element_text(hjust=.25))
+
+
+####Now to make some plots of the number of individuals again, but this time separated out by species! Do it both with and without stringency for significant hits (5% FDR)
+beta.prop.H.sig <- data.frame(beta=seq(-7.5, 7.5, 0.1), prop1=NA, prop2=NA, prop3=NA, prop4=NA)
+beta.prop.C.sig <- data.frame(beta=seq(-7.5, 7.5, 0.1), prop1=NA, prop2=NA, prop3=NA, prop4=NA)
+
+for(row in 1:nrow(beta.prop.sig)){
+  beta <- beta.prop.sig[row,1]
+  nextbeta <- beta+0.1
+  beta.prop.H.sig$prop1[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="H"&full.data.clean$sp_pval<=0.05&full.data.clean$found_in_H==1)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="H"&full.data.clean$sp_pval<=0.05)
+  beta.prop.H.sig$prop2[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="H"&full.data.clean$sp_pval<=0.05&full.data.clean$found_in_H==2)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="H"&full.data.clean$sp_pval<=0.05)
+  beta.prop.H.sig$prop3[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="H"&full.data.clean$sp_pval<=0.05&full.data.clean$found_in_H==3)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="H"&full.data.clean$sp_pval<=0.05)
+  beta.prop.H.sig$prop4[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="H"&full.data.clean$sp_pval<=0.05&full.data.clean$found_in_H==4)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="H"&full.data.clean$sp_pval<=0.05)
+  
+    beta.prop.C.sig$prop1[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="C"&full.data.clean$sp_pval<=0.05&full.data.clean$found_in_C==1)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="C"&full.data.clean$sp_pval<=0.05)
+  beta.prop.C.sig$prop2[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="C"&full.data.clean$sp_pval<=0.05&full.data.clean$found_in_C==2)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="C"&full.data.clean$sp_pval<=0.05)
+  beta.prop.C.sig$prop3[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="C"&full.data.clean$sp_pval<=0.05&full.data.clean$found_in_C==3)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="C"&full.data.clean$sp_pval<=0.05)
+  beta.prop.C.sig$prop4[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="C"&full.data.clean$sp_pval<=0.05&full.data.clean$found_in_C==4)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="C"&full.data.clean$sp_pval<=0.05)
+}
+
+beta.prop.H.sig$ids <- beta.prop.H.sig$beta+7.5
+ind.H.beta.sig <- melt(beta.prop.H.sig[,c(6, 2:5)], id.vars="ids")
+ind.H.beta.sig$beta <- ind.H.beta.sig$ids-7.5
+
+ggplot(ind.H.beta.sig, aes(x=beta, y=value, fill=variable)) + geom_col(aes(color=variable, fill=variable)) + labs(title="Proportion of Significant Hits ID'd in # Humans across Betas, 5% FDR") + xlab("Beta") + ylab("Proportion") + scale_fill_discrete(name="Homer-significant in", labels=(1:8)) + scale_color_discrete(name="Homer-significant in", labels=(1:8)) + theme(plot.title=element_text(hjust=.25))
+
+beta.prop.C.sig$ids <- beta.prop.C.sig$beta+7.5
+ind.C.beta.sig <- melt(beta.prop.C.sig[,c(6, 2:5)], id.vars="ids")
+ind.C.beta.sig$beta <- ind.C.beta.sig$ids-7.5
+
+ggplot(ind.C.beta.sig, aes(x=beta, y=value, fill=variable)) + geom_col(aes(color=variable, fill=variable)) + labs(title="Proportion of Significant Hits ID'd in # Chimps across Betas, 5% FDR") + xlab("Beta") + ylab("Proportion") + scale_fill_discrete(name="Homer-significant in", labels=(1:8)) + scale_color_discrete(name="Homer-significant in", labels=(1:8)) + theme(plot.title=element_text(hjust=.25))
+
+### Now, without significance stringency...
+beta.prop.H <- data.frame(beta=seq(-7.5, 7.5, 0.1), prop1=NA, prop2=NA, prop3=NA, prop4=NA)
+beta.prop.C <- data.frame(beta=seq(-7.5, 7.5, 0.1), prop1=NA, prop2=NA, prop3=NA, prop4=NA)
+
+for(row in 1:nrow(beta.prop)){
+  beta <- beta.prop[row,1]
+  nextbeta <- beta+0.1
+  beta.prop.H$prop1[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="H"&full.data.clean$found_in_H==1)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="H")
+  beta.prop.H$prop2[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="H"&full.data.clean$found_in_H==2)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="H")
+  beta.prop.H$prop3[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="H"&full.data.clean$found_in_H==3)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="H")
+  beta.prop.H$prop4[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="H"&full.data.clean$found_in_H==4)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="H")
+  
+    beta.prop.C$prop1[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="C"&full.data.clean$found_in_C==1)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="C")
+  beta.prop.C$prop2[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="C"&full.data.clean$found_in_C==2)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="C")
+  beta.prop.C$prop3[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="C"&full.data.clean$found_in_C==3)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="C")
+  beta.prop.C$prop4[row] <- sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="C"&full.data.clean$found_in_C==4)/sum(full.data.clean$sp_beta>=beta&full.data.clean$sp_beta<nextbeta&full.data.clean$disc_species=="C")
+}
+
+beta.prop.H$ids <- beta.prop.H$beta+7.5
+ind.H.beta <- melt(beta.prop.H[,c(6, 2:5)], id.vars="ids")
+ind.H.beta$beta <- ind.H.beta$ids-7.5
+
+ggplot(ind.H.beta, aes(x=beta, y=value, fill=variable)) + geom_col(aes(color=variable, fill=variable)) + labs(title="Proportion of Significant Hits ID'd in # Humans across Betas") + xlab("Beta") + ylab("Proportion") + scale_fill_discrete(name="Homer-significant in", labels=(1:8)) + scale_color_discrete(name="Homer-significant in", labels=(1:8)) + theme(plot.title=element_text(hjust=.25))
+
+beta.prop.C$ids <- beta.prop.C$beta+7.5
+ind.C.beta <- melt(beta.prop.C[,c(6, 2:5)], id.vars="ids")
+ind.C.beta$beta <- ind.C.beta$ids-7.5
+
+ggplot(ind.C.beta, aes(x=beta, y=value, fill=variable)) + geom_col(aes(color=variable, fill=variable)) + labs(title="Proportion of Significant Hits ID'd in # Chimps across Betas") + xlab("Beta") + ylab("Proportion") + scale_fill_discrete(name="Homer-significant in", labels=(1:8)) + scale_color_discrete(name="Homer-significant in", labels=(1:8)) + theme(plot.title=element_text(hjust=.25))
+
+#######Making MA plot of ratio of species means for the contact frequencies vs. betas
+Hmeans <- rowMeans(full.norm.contacts[,c(1:2, 5:6)])
+Cmeans <- rowMeans(full.norm.contacts[,c(3:4, 7:8)])
+
+#dat.ratio <- log2(Hmeans/Cmeans)
+maframe <- data.frame(Hmeans=Hmeans, Cmeans=Cmeans, beta=full.data.clean$sp_beta, id=as.character(seq(1, 738782)))
+plotma <- melt(maframe, id.vars = id)
+ggplot(data=maframe, aes(x=Hmeans, y=beta)) + geom_point() + labs(title="'MA' Plot, Humans") + xlab("Means of Human Hi-C Contact Frequencies") + ylab("Species Beta (log ratio?)")
+ggplot(data=maframe, aes(x=Cmeans, y=beta)) + geom_point() + labs(title="'MA' Plot, Chimps") + xlab("Means of Chimp Hi-C Contact Frequencies") + ylab("Species Beta (log ratio?)")
+
+
+######Looking at unmapped reads in reciprocal best hits from liftover
+H1un <- fread("~/Desktop/mate1s.unmapped", header=FALSE, stringsAsFactors = FALSE, data.table = FALSE)
+H2un <- fread("~/Desktop/mate2s.unmapped", header=FALSE, stringsAsFactors = FALSE, data.table = FALSE)
+HM1 <- table(H1un$V1)
+HM2 <- table(H2un$V1)
+HM1 <- melt(HM1)
+HM2 <- melt(HM2)
+HM1 <- HM1[grep("random", HM1$Var1, invert=TRUE),]
+HM2 <- HM2[grep("random", HM2$Var1, invert=TRUE),]
+HM1$Var1 <- as.character(HM1$Var1)
+HM2$Var1 <- as.character(HM2$Var1)
+levels(HM1$Var1) <- levels(HM1$Var1)[(HM1[grep("random", levels(HM1$Var1), invert=TRUE),])]
+levels(HM2$Var1) <- levels(HM2$Var1)[(HM2[grep("random", levels(HM2$Var1), invert=TRUE),])]
+HMs <- full_join(HM1, HM2, by="Var1")
+HMs$tot <- HMs$value.x+HMs$value.y
+
+genome=c("chr1", "chr2", "chr2A", "chr2B", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20", "chr21", "chr22", "chrX", "chrY", "chrM")
+
+cleanome=c("1", "2", "2A", "2B", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "X", "Y", "M")
+
+ggplot(data=HMs, aes(x=Var1, y=tot)) + geom_col() + scale_x_discrete(labels=cleanome, limits=genome) + labs(title="# Significant Hits Dropping out across the Genome")
+```
+
+
+```{r Meeting 8-9-17}
+##First and foremost, checking some results of linear modeling by creating fake metadata with species info switched around about, putting 2 humans and 2 chimps in each fake "species" group to observe the QQplot; hoping for normality and generally staying on the line.
+#meta.fake.balanced <- data.frame("SP"=c("H", "H", "H", "H", "C", "C", "C", "C"), "SX"=c("F", "M", "M", "F", "M", "F", "M", "F"), "Batch"=c(1, 1, 1, 1, 2, 2, 2, 2)) This one had species confounded w/ batch entirely.
+meta.fake2 <- data.frame("SP"=c("H", "C", "H", "C", "H", "C", "H", "C"), "SX"=c("F", "M", "M", "F", "M", "F", "M", "F"), "Batch"=c(1, 1, 1, 1, 2, 2, 2, 2))
+
+#Run linear models on all metadata types, compare QQplots and distributions of p-vals, residuals, betas.
+#fake_design1 <- model.matrix(~1+meta.fake.balanced$SP+meta.fake.balanced$SX+meta.fake.balanced$Batch)
+#lmFit(full.norm.contacts, fake_design1) %>% eBayes(.) -> model_fake1 See above, this model ends up confounding batch w/ species (fake species, but nonetheless)
+
+fake_design2 <- model.matrix(~1+meta.fake2$SP+meta.fake2$SX+meta.fake2$Batch)
+lmFit(full.norm.contacts, fake_design2) %>% eBayes(.) -> model_fake2
+hist(model_fake2$coefficients[,2], main="Effect Sizes for Fake Species")
+hist(model_fake2$p.value[,2], main="P-vals for Fake Species")
+hist(model_fake2$coefficients[,3], main="Effect Sizes for Fake Sex")
+hist(model_fake2$p.value[,3], main="P-vals for Fake Sex")
+hist(model_fake2$coefficients[,4], main="Effect Sizes for Fake Batch")
+hist(model_fake2$p.value[,4], main="P-vals for Fake Batch")
+
+newqqplot(-log10(model_fake2$p.value[,2]), c(0.5, 0.75))
+
+#Do the standard-issue linear modeling I've been doing, with sex, batch, and species as fixed effects.
+design <- model.matrix(~1+meta.data$SP+meta.data$SX+meta.data$Batch)
+lmFit(full.norm.contacts, design) %>% eBayes(.) -> model
+volc <- topTable(model, coef = 2, sort.by = "none", number = Inf)
+full.data.clean$sp_pval <- volc$adj.P.Val #Add a column to the full data with its adjusted species p-val.
+
+#Make volcano plot of this shit
+plot(volc$logFC, -log10(volc$adj.P.Val), col=ifelse(volc$adj.P.Val<=0.05, ifelse(volc$logFC>=2|volc$logFC<=-2, "red", "black"), "black"), xlab="Log2 Fold Change in Contact Frequency", ylab="-log10 BH-corrected p-values", main="Difference in Contact Frequencies b/t Humans and Chimps")
+
+#Figure out which species each hit was identified in. Do this by calculating number of NAs per row in either human or chimp cohorts, then dividing by 35 (each individual has 35 columns)
+humNAs <- rowSums(is.na(full.data.clean[,1:141]))
+chimpNAs <- rowSums(is.na(full.data.clean[,142:281]))
+full.data.clean$found_in_H <- (4-humNAs/35) #Set a new column identifying number of humans hit was found in
+full.data.clean$found_in_C <- (4-chimpNAs/35) #Set a new column identifying number of chimps hit was found in
+full.data.clean$disc_species <- ifelse(full.data.clean$found_in_C>0&full.data.clean$found_in_H>0, "B", ifelse(full.data.clean$found_in_C==0, "H", "C")) #Set a column identifying which species (H, C, or Both) the hit in question was identified in. Works with nested ifelses.
+full.data.clean$tot_indiv_IDd <- full.data.clean$found_in_C+full.data.clean$found_in_H #Add a column specifying total number of individuals homer found the significant hit in.
+
+#Quantify some things about the significant hits in terms of which species they were discovered in, and how many individuals they were seen in. Also create some stacked line graphs showing these proportions at different FDR cutoffs. Create a new, long-form data frame for this info for easier plotting with ggplot2.
+#A="A", B="B", C="C", D="D", E="E", F="F", G="G", H="H",
+plotframe <- data.frame(found_H=full.data.clean$found_in_H, found_C=full.data.clean$found_in_C, disc_sp=full.data.clean$disc_species, tots=full.data.clean$tot_indiv_IDd, pval=full.data.clean$sp_pval, beta=volc$logFC)
+
+pval.prop <- data.frame(pval=seq(1, 0, -0.005))
+
+prop.calc <- function(pval, df=plotframe, sp){
+  return(sum(df[which(df$pval<=pval), "disc_sp"]==sp))/sum(df$pval<=pval)
+}
+
+pval.prop$propH <- NULL
+pval.prop$propC <- NULL
+pval.prop$propB <- NULL
+pval.prop$prop1 <- NULL
+pval.prop$prop2 <- NULL
+pval.prop$prop3 <- NULL
+pval.prop$prop4 <- NULL
+pval.prop$prop5 <- NULL
+pval.prop$prop6 <- NULL
+pval.prop$prop7 <- NULL
+pval.prop$prop8 <- NULL
+for(row in 1:nrow(pval.prop)){
+  pval <- pval.prop[row,1]
+  pval.prop$propH[row] <- sum(plotframe[which(plotframe$pval<=pval), "disc_sp"]=="H")/sum(plotframe$pval<=pval)
+  pval.prop$propC[row] <- sum(plotframe[which(plotframe$pval<=pval), "disc_sp"]=="C")/sum(plotframe$pval<=pval)
+  pval.prop$propB[row] <- sum(plotframe[which(plotframe$pval<=pval), "disc_sp"]=="B")/sum(plotframe$pval<=pval)
+  pval.prop$prop1[row] <- sum(plotframe[which(plotframe$pval<=pval), "tots"]==1)/sum(plotframe$pval<=pval)
+  pval.prop$prop2[row] <- sum(plotframe[which(plotframe$pval<=pval), "tots"]==2)/sum(plotframe$pval<=pval)
+  pval.prop$prop3[row] <- sum(plotframe[which(plotframe$pval<=pval), "tots"]==3)/sum(plotframe$pval<=pval)
+  pval.prop$prop4[row] <- sum(plotframe[which(plotframe$pval<=pval), "tots"]==4)/sum(plotframe$pval<=pval)
+  pval.prop$prop5[row] <- sum(plotframe[which(plotframe$pval<=pval), "tots"]==5)/sum(plotframe$pval<=pval)
+  pval.prop$prop6[row] <- sum(plotframe[which(plotframe$pval<=pval), "tots"]==6)/sum(plotframe$pval<=pval)
+  pval.prop$prop7[row] <- sum(plotframe[which(plotframe$pval<=pval), "tots"]==7)/sum(plotframe$pval<=pval)
+  pval.prop$prop8[row] <- sum(plotframe[which(plotframe$pval<=pval), "tots"]==8)/sum(plotframe$pval<=pval)
+}
+specs_df <- melt(pval.prop[,1:4], id.vars=pval.prop$pval)
+indis_df <- melt(pval.prop[,c(1, 5:12)], id.vars=pval.prop$pval)
+ggplot(specs_df, aes(x=pval, y=value, fill=variable)) + geom_area() + labs(title="Proportion of Significant Hits ID'd in Each Species across FDR") + xlab("FDR") + ylab("Proportion") + scale_fill_discrete(name="Homer-significant in", labels=c("Human", "Chimp", "Both"))
+ggplot(indis_df, aes(x=pval, y=value, fill=variable)) + geom_area() + labs(title="Proportion of Significant Hits ID'd in # Individuals across FDR") + xlab("FDR") + ylab("Proportion") + scale_fill_discrete(name="Homer-significant in", labels=(1:8))
+
+#Make a chart describing proportions of human, chimp, and both homer-identification of hits across a variety of betas.
+beta.prop <- data.frame(beta=seq(-7.5, 7.5, 0.1))
+beta.prop$propH <- NULL
+beta.prop$propC <- NULL
+beta.prop$propB <- NULL
+beta.prop$prop1 <- NULL
+beta.prop$prop2 <- NULL
+beta.prop$prop3 <- NULL
+beta.prop$prop4 <- NULL
+beta.prop$prop5 <- NULL
+beta.prop$prop6 <- NULL
+beta.prop$prop7 <- NULL
+beta.prop$prop8 <- NULL
+for(row in 1:nrow(beta.prop)){
+  beta <- beta.prop[row,1]
+  beta.prop$propH[row] <- sum(plotframe[which(plotframe$beta<=beta), "disc_sp"]=="H")/sum(plotframe$beta<=beta)
+  beta.prop$propC[row] <- sum(plotframe[which(plotframe$beta<=beta), "disc_sp"]=="C")/sum(plotframe$beta<=beta)
+  beta.prop$propB[row] <- sum(plotframe[which(plotframe$beta<=beta), "disc_sp"]=="B")/sum(plotframe$beta<=beta)
+  beta.prop$prop1[row] <- sum(plotframe[which(plotframe$beta<=beta), "tots"]==1)/sum(plotframe$beta<=beta)
+  beta.prop$prop2[row] <- sum(plotframe[which(plotframe$beta<=beta), "tots"]==2)/sum(plotframe$beta<=beta)
+  beta.prop$prop3[row] <- sum(plotframe[which(plotframe$beta<=beta), "tots"]==3)/sum(plotframe$beta<=beta)
+  beta.prop$prop4[row] <- sum(plotframe[which(plotframe$beta<=beta), "tots"]==4)/sum(plotframe$beta<=beta)
+  beta.prop$prop5[row] <- sum(plotframe[which(plotframe$beta<=beta), "tots"]==5)/sum(plotframe$beta<=beta)
+  beta.prop$prop6[row] <- sum(plotframe[which(plotframe$beta<=beta), "tots"]==6)/sum(plotframe$beta<=beta)
+  beta.prop$prop7[row] <- sum(plotframe[which(plotframe$beta<=beta), "tots"]==7)/sum(plotframe$beta<=beta)
+  beta.prop$prop8[row] <- sum(plotframe[which(plotframe$beta<=beta), "tots"]==8)/sum(plotframe$beta<=beta)
+}
+beta.prop$ids <- beta.prop$beta+7.5
+specs_beta <- melt(beta.prop[,c(13, 2:4)], id.vars="ids")
+specs_beta$beta <- specs_beta$ids-7.5
+indis_beta <- melt(beta.prop[,c(13, 5:12)], id.vars="ids")
+indis_beta$beta <- indis_beta$ids-7.5
+ggplot(specs_beta, aes(x=beta, y=value, fill=variable)) + geom_area() + labs(title="Proportion of Significant Hits ID'd in Each Species across Betas") + xlab("Beta") + ylab("Proportion") + scale_fill_discrete(name="Homer-significant in", labels=c("Human", "Chimp", "Both"))
+ggplot(indis_beta, aes(x=beta, y=value, fill=variable)) + geom_area() + labs(title="Proportion of Significant Hits ID'd in # Individuals across Betas") + xlab("Beta") + ylab("Proportion") + scale_fill_discrete(name="Homer-significant in", labels=(1:8))
+
+#Same thing again, but this time only for betas that have p-vals reaching significance at 5% FDR.
+beta.prop <- data.frame(beta=seq(-7.5, 7.5, 0.1))
+beta.prop$propH <- NULL
+beta.prop$propC <- NULL
+beta.prop$propB <- NULL
+beta.prop$prop1 <- NULL
+beta.prop$prop2 <- NULL
+beta.prop$prop3 <- NULL
+beta.prop$prop4 <- NULL
+beta.prop$prop5 <- NULL
+beta.prop$prop6 <- NULL
+beta.prop$prop7 <- NULL
+beta.prop$prop8 <- NULL
+for(row in 1:nrow(beta.prop)){
+  beta <- beta.prop[row,1]
+  beta.prop$propH[row] <- sum(plotframe[which(plotframe$beta<=beta&plotframe$pval<=0.05), "disc_sp"]=="H")/sum(plotframe$beta<=beta&plotframe$pval<=0.05)
+  beta.prop$propC[row] <- sum(plotframe[which(plotframe$beta<=beta&plotframe$pval<=0.05), "disc_sp"]=="C")/sum(plotframe$beta<=beta&plotframe$pval<=0.05)
+  beta.prop$propB[row] <- sum(plotframe[which(plotframe$beta<=beta&plotframe$pval<=0.05), "disc_sp"]=="B")/sum(plotframe$beta<=beta&plotframe$pval<=0.05)
+  beta.prop$prop1[row] <- sum(plotframe[which(plotframe$beta<=beta&plotframe$pval<=0.05), "tots"]==1)/sum(plotframe$beta<=beta&plotframe$pval<=0.05)
+  beta.prop$prop2[row] <- sum(plotframe[which(plotframe$beta<=beta&plotframe$pval<=0.05), "tots"]==2)/sum(plotframe$beta<=beta&plotframe$pval<=0.05)
+  beta.prop$prop3[row] <- sum(plotframe[which(plotframe$beta<=beta&plotframe$pval<=0.05), "tots"]==3)/sum(plotframe$beta<=beta&plotframe$pval<=0.05)
+  beta.prop$prop4[row] <- sum(plotframe[which(plotframe$beta<=beta&plotframe$pval<=0.05), "tots"]==4)/sum(plotframe$beta<=beta&plotframe$pval<=0.05)
+  beta.prop$prop5[row] <- sum(plotframe[which(plotframe$beta<=beta&plotframe$pval<=0.05), "tots"]==5)/sum(plotframe$beta<=beta&plotframe$pval<=0.05)
+  beta.prop$prop6[row] <- sum(plotframe[which(plotframe$beta<=beta&plotframe$pval<=0.05), "tots"]==6)/sum(plotframe$beta<=beta&plotframe$pval<=0.05)
+  beta.prop$prop7[row] <- sum(plotframe[which(plotframe$beta<=beta&plotframe$pval<=0.05), "tots"]==7)/sum(plotframe$beta<=beta&plotframe$pval<=0.05)
+  beta.prop$prop8[row] <- sum(plotframe[which(plotframe$beta<=beta&plotframe$pval<=0.05), "tots"]==8)/sum(plotframe$beta<=beta&plotframe$pval<=0.05)
+}
+beta.prop$ids <- beta.prop$beta+7.5
+specs_beta <- melt(beta.prop[,c(13, 2:4)], id.vars="ids")
+specs_beta$beta <- specs_beta$ids-7.5
+indis_beta <- melt(beta.prop[,c(13, 5:12)], id.vars="ids")
+indis_beta$beta <- indis_beta$ids-7.5
+ggplot(specs_beta, aes(x=beta, y=value, fill=variable)) + geom_area() + labs(title="Proportion Significant Hits ID'd in Each Species across Betas, 5% FDR") + xlab("Beta") + ylab("Proportion") + scale_fill_discrete(name="Homer-significant in", labels=c("Human", "Chimp", "Both"))
+ggplot(indis_beta, aes(x=beta, y=value, fill=variable)) + geom_area() + labs(title="Proportion Significant Hits ID'd in # Individuals across Betas, 5% FDR") + xlab("Beta") + ylab("Proportion") + scale_fill_discrete(name="Homer-significant in", labels=(1:8))
+
+ortho.drops <- data.frame(indis=c("A", "B", "E", "F", "C", "D", "G", "H"), start=c(307097, 303912, 244194, 265186, 252446, 299563, 260020, 246214), end=c(195974, 190485, 153440, 167020, 159707, 193246, 163765, 154567))
+ortho.drops$perc <- ortho.drops$end/ortho.drops$start
+mean(ortho.drops$perc[1:4])
+mean(ortho.drops$perc[5:8])
+```
+
+```{r Quantifying dropouts of bins with reciprocal hits liftovers!}
+
+```
+
+
